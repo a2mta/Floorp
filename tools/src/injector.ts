@@ -87,6 +87,8 @@ export function createManifest(mode: string, dirPath: string) {
     "content noraneko-startup startup/ contentaccessible=yes",
     "content noraneko-skin skin/ contentaccessible=yes",
     "resource noraneko resource/ contentaccessible=yes",
+    "content noraneko-pages-aboutdialog pages-aboutDialog/ contentaccessible=yes",
+    "override chrome://browser/content/aboutDialog.xhtml chrome://noraneko-pages-aboutdialog/content/aboutDialog.html",
   ].join("\n");
 
   // if (dev) the pages should be served in vite dev server
@@ -154,6 +156,7 @@ export function run(mode: string, dirName = "noraneko-devdir"): void {
     ["pages-notes", "browser-features/pages-notes/_dist"],
     ["pages-modal-child", "browser-features/pages-modal-child/_dist"],
     ["pages-profile-manager", "browser-features/pages-profile-manager/_dist"],
+    ["pages-aboutDialog", "browser-features/pages-aboutDialog/_dist"],
   ];
 
   for (const [subdir, target] of mounts) {

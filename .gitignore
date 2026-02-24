@@ -2,6 +2,7 @@
 **/_dist/
 **/node_modules/
 **/.turbo
+**/.vite/
 
 *.tar.zst
 *.tar.xz
