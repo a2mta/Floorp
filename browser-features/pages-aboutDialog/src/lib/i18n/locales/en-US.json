@@ -38,8 +38,9 @@
       "help": "Floorp Help",
       "feedback": "Submit Feedback",
       "licensing": "License",
-      "terms": "Based on Mozilla Firefox",
+      "terms": "Terms of Service",
       "privacy": "Privacy Policy"
-    }
+    },
+    "trademark": "The name Floorp is a trademark in Japan."
   }
 }

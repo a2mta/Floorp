@@ -515,7 +515,7 @@ export function AboutDialog() {
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            openExternalUrl("https://www.mozilla.org/privacy/firefox/");
+            openExternalUrl("https://ja.floorp.app/privacy");
           }}
           data-l10n-id="bottom-links-privacy"
         >
@@ -525,13 +525,13 @@ export function AboutDialog() {
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            openExternalUrl("https://www.mozilla.org/about/legal/terms/firefox/");
+            openExternalUrl("https://ja.floorp.app/terms");
           }}
           data-l10n-id="bottom-links-terms"
         >
-          {t("aboutDialog.links.basedOnFirefox")}
+          {t("aboutDialog.links.terms")}
         </a>
-        <p class="ad-tm" data-l10n-id="trademarkInfo" />
+        <p class="ad-tm">{t("aboutDialog.trademark")}</p>
       </footer>
     </main>
   );

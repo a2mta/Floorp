@@ -38,8 +38,9 @@
       "help": "Floorp ヘルプ",
       "feedback": "フィードバックを送信",
       "licensing": "ライセンス",
-      "terms": "Mozilla Firefox ベース",
+      "terms": "利用規約",
       "privacy": "プライバシーポリシー"
-    }
+    },
+    "trademark": "Floorp の名称は日本国内における商標です。"
   }
 }
