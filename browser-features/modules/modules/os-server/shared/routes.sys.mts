@@ -121,11 +121,13 @@ export function registerCommonAutomationRoutes(
     const json = ctx.json() as {
       selector?: string;
       timeout?: number;
+      state?: WaitForElementState;
     } | null;
     const sel = json?.selector ?? "";
     const to = json?.timeout ?? 5000;
+    const state = json?.state ?? "attached";
     const service = getService();
-    const found = await service.waitForElement(ctx.params.id, sel, to);
+    const found = await service.waitForElement(ctx.params.id, sel, to, state);
     return { status: 200, body: { ok: found ?? false } };
   });
 
@@ -382,6 +384,15 @@ export function registerCommonAutomationRoutes(
     const timeout = json?.timeout ?? 5000;
     const service = getService();
     const ok = await service.waitForNetworkIdle(ctx.params.id, timeout);
+    return { status: 200, body: { ok: ok ?? false } };
+  });
+
+  // Wait for document ready (DOMContentLoaded)
+  ns.post("/instances/:id/waitForReady", async (ctx: RouterContext) => {
+    const json = ctx.json() as { timeout?: number } | null;
+    const timeout = json?.timeout ?? 15000;
+    const service = getService();
+    const ok = await service.waitForReady(ctx.params.id, timeout);
     return { status: 200, body: { ok: ok ?? false } };
   });
 

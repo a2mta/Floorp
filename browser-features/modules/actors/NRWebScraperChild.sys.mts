@@ -196,6 +196,8 @@ export class NRWebScraperChild extends JSWindowActorChild {
           return domOps.waitForElement(
             message.data.selector,
             message.data.timeout || 5000,
+            undefined,
+            message.data.state || "attached",
           );
         }
         break;
@@ -364,14 +366,15 @@ export class NRWebScraperChild extends JSWindowActorChild {
           );
         }
         break;
-      case "WebScraper:DispatchTextInput":
-        if (message.data?.selector && typeof message.data?.text === "string") {
-          return domOps.dispatchTextInput(
-            message.data.selector,
-            message.data.text,
-          );
+      case "WebScraper:DispatchTextInput": {
+        const text = (
+          message.data as (NRWebScraperMessageData & { text?: string }) | undefined
+        )?.text;
+        if (message.data?.selector && typeof text === "string") {
+          return domOps.dispatchTextInput(message.data.selector, text);
         }
         break;
+      }
 
     }
     return null;
