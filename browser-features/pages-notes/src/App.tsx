@@ -182,7 +182,8 @@ function App() {
                 onDeleteNote={deleteNote}
                 onReorderNotes={(newNotes) => {
                   setNotes(newNotes);
-                  saveNotesToStorage(newNotes);
+                  // Note: Don't need to call saveNotesToStorage here since
+                  // the debounced save effect will handle it automatically
                 }}
                 isReorderMode={isReorderMode}
               />
