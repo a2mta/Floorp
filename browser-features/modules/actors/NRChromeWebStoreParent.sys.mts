@@ -30,7 +30,6 @@ import {
   CRX_VERSIONS,
   INSTALL_ERROR_MESSAGE_KEYS,
   CWS_I18N_KEYS,
-  CWS_EXPERIMENT_ID,
   generateFirefoxId,
 } from "../modules/chrome-web-store/Constants.sys.mts";
 
@@ -131,23 +130,6 @@ function t(key: string, vars?: Record<string, string | number>): string {
   return key;
 }
 
-/**
- * Check if the Chrome Web Store feature is enabled via experiment
- * @returns true if the experiment is active (variant is not null)
- */
-function isExperimentEnabled(): boolean {
-  try {
-    const { Experiments } = ChromeUtils.importESModule(
-      "resource://noraneko/modules/experiments/Experiments.sys.mjs",
-    );
-    const variant = Experiments.getVariant(CWS_EXPERIMENT_ID);
-    return variant !== null;
-  } catch {
-    // If experiments system fails, default to disabled for safety
-    return false;
-  }
-}
-
 export class NRChromeWebStoreParent extends JSWindowActorParent {
   async receiveMessage(message: {
     name: string;
@@ -161,17 +143,11 @@ export class NRChromeWebStoreParent extends JSWindowActorParent {
   > {
     switch (message.name) {
       case "CWS:CheckExperiment":
-        // Check if the Chrome Web Store feature is enabled via experiment
-        return isExperimentEnabled();
+        // Chrome Web Store feature is now stable, always enabled
+        return true;
 
       case "CWS:InstallExtension":
-        // Check experiment before allowing installation
-        if (!isExperimentEnabled()) {
-          return {
-            success: false,
-            error: t(CWS_I18N_KEYS.error.experimentDisabled),
-          };
-        }
+        // Feature is now stable, no experiment check needed
         if (
           message.data &&
           "extensionId" in message.data &&
