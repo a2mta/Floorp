@@ -104,6 +104,7 @@ interface GBrowser {
 interface TabListEntry {
   browserId: string;
   instanceId?: string;
+  windowId: string;
   title: string;
   url: string;
   selected: boolean;
@@ -167,6 +168,17 @@ function getBrowserWindows(): Array<Window & { gBrowser: GBrowser }> {
 }
 
 /**
+ * Returns an identifier for a browser window.
+ * Falls back to "0" if docShell is unavailable (rare edge case).
+ */
+function getWindowId(win: Window): string {
+  return String(
+    (win as unknown as { docShell?: { outerWindowID: number } }).docShell
+      ?.outerWindowID ?? 0,
+  );
+}
+
+/**
  * TabManager class that manages browser tabs for automation and interaction.
  */
 class TabManager {
@@ -178,14 +190,90 @@ class TabManager {
 
   private readonly _defaultActionDelay = 500;
 
-  constructor() {}
+  // Set of instance IDs currently being destroyed (TOCTOU guard)
+  private _destroying: Set<string> = new Set();
+
+  // Track windows with registered TabClose listeners to prevent duplicates
+  private _listenedWindows: Set<Window> = new Set();
+
+  constructor() {
+    // Register TabClose listeners on all existing windows
+    for (const win of getBrowserWindows()) {
+      this._setupWindowListeners(win);
+    }
+    // Register listener for future windows
+    Services.obs.addObserver(
+      {
+        observe: (subject: nsISupports) => {
+          const win = subject.QueryInterface(Ci.nsIDOMWindow) as Window;
+          win.addEventListener(
+            "load",
+            () => {
+              if ((win as unknown as { gBrowser?: GBrowser }).gBrowser?.tabContainer) {
+                this._setupWindowListeners(
+                  win as Window & { gBrowser: GBrowser },
+                );
+              }
+            },
+            { once: true },
+          );
+        },
+      },
+      "domwindowopened",
+    );
+  }
+
+  /**
+   * Registers TabClose listener on a window's tab container.
+   * Guards against duplicate registration.
+   */
+  private _setupWindowListeners(win: Window & { gBrowser: GBrowser }) {
+    if (this._listenedWindows.has(win)) return;
+    try {
+      win.gBrowser.tabContainer.addEventListener("TabClose", this._onTabClose);
+      this._listenedWindows.add(win);
+    } catch (e) {
+      console.warn("TabManager: Failed to attach TabClose listener:", e);
+    }
+  }
+
+  /**
+   * Handles tab close events - proactively cleans up instance tracking.
+   * Prevents zombie entries when tabs are closed manually by the user.
+   */
+  private _onTabClose = (event: Event) => {
+    const tab = event.target as BrowserTab;
+    for (const [instanceId, entry] of this._browserInstances.entries()) {
+      if (entry.tab === tab) {
+        // Clean up GlobalHTTPTracker for this tab's browsing context
+        const bcid = entry.browser.browsingContext?.id;
+        if (bcid !== undefined && bcid !== null) {
+          GlobalHTTPTracker.activeRequests.delete(bcid);
+        }
+        this._browserInstances.delete(instanceId);
+        TAB_MANAGER_ACTOR_SETS.delete(entry.browser);
+        this._destroying.delete(instanceId);
+        if (tab.removeAttribute) {
+          tab.removeAttribute("data-floorp-os-automated");
+          tab.removeAttribute("data-floorp-os-instance-id");
+        }
+        console.log(`TabManager: Auto-cleaned instance ${instanceId} on tab close`);
+        break;
+      }
+    }
+  };
 
   // --- Private Helper Methods ---
 
   /**
-   * Retrieves an instance entry by its ID, handling fallback to browserId.
+   * Retrieves an instance entry by its ID, handling fallback to DOM attribute scan.
    */
   private _getEntry(instanceId: string) {
+    // Bug #8: Reject if currently being destroyed (TOCTOU guard)
+    if (this._destroying.has(instanceId)) {
+      return null;
+    }
+
     let entry = this._browserInstances.get(instanceId);
 
     // Fallback: try to recover by scanning tabs with stored instanceId attribute.
@@ -213,65 +301,6 @@ class TabManager {
       }
     }
 
-    // Fallback: If not found in instances, check if it's a browserId of an existing tab
-    if (!entry) {
-      try {
-        let targetTab: BrowserTab | undefined;
-        for (const win of getBrowserWindows()) {
-          targetTab = win.gBrowser.tabs.find(
-            (tab: BrowserTab) =>
-              tab.linkedBrowser.browserId.toString() === instanceId,
-          );
-          if (targetTab) break;
-        }
-        if (targetTab) {
-          entry = { tab: targetTab, browser: targetTab.linkedBrowser };
-          // Auto-register to allow subsequent calls to use this ID
-          this._browserInstances.set(instanceId, entry);
-          TAB_MANAGER_ACTOR_SETS.add(entry.browser);
-          if (targetTab.setAttribute) {
-            targetTab.setAttribute("data-floorp-os-automated", "true");
-          }
-        }
-      } catch {
-        // ignore errors from getBrowserWindow or tab search
-      }
-    }
-
-    // Last resort recovery: if there is exactly one automated tab AND it has NO instanceId attribute,
-    // bind this instanceId to it. This helps when the service is reloaded and the map was lost,
-    // but the client still holds the ID. We should NOT bind if the tab already has a different instanceId.
-    if (!entry) {
-      try {
-        const automatedTabs: BrowserTab[] = [];
-        for (const win of getBrowserWindows()) {
-          for (const tab of win.gBrowser.tabs) {
-            const flag = tab.getAttribute?.("data-floorp-os-automated");
-            if (flag === "true") {
-              automatedTabs.push(tab);
-            }
-          }
-        }
-        if (automatedTabs.length === 1) {
-          const targetTab = automatedTabs[0];
-          const existingInstanceId = targetTab.getAttribute?.(
-            "data-floorp-os-instance-id",
-          );
-          // Only bind if the tab has no instanceId or if it matches the requested instanceId
-          if (!existingInstanceId || existingInstanceId === instanceId) {
-            entry = { tab: targetTab, browser: targetTab.linkedBrowser };
-            this._browserInstances.set(instanceId, entry);
-            TAB_MANAGER_ACTOR_SETS.add(entry.browser);
-            if (targetTab.setAttribute && !existingInstanceId) {
-              targetTab.setAttribute("data-floorp-os-instance-id", instanceId);
-            }
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-
     if (entry) {
       // Verify tab is still alive and in a window
       const browser = entry.tab.linkedBrowser;
@@ -281,7 +310,13 @@ class TabManager {
         return null;
       }
       // Always use the latest linkedBrowser in case it changed (e.g. remoteness change)
+      // Bug #4: update TAB_MANAGER_ACTOR_SETS when browser reference changes
+      const oldBrowser = entry.browser;
       entry.browser = browser;
+      if (oldBrowser !== browser) {
+        TAB_MANAGER_ACTOR_SETS.delete(oldBrowser);
+        TAB_MANAGER_ACTOR_SETS.add(browser);
+      }
     }
 
     return entry;
@@ -362,9 +397,25 @@ class TabManager {
     return new Promise((resolve) => {
       const uri = Services.io.newURI(url);
       let resolved = false;
+      // Bug #9: Timeout to prevent listener leak on stuck page loads
+      const timeoutId = setTimeout(() => {
+        if (resolved) return;
+        console.warn("TabManager: _waitForLoad timed out after 30 seconds");
+        resolved = true;
+        PROGRESS_LISTENERS.delete(progressListener);
+        try {
+          browser.webProgress.removeProgressListener(
+            progressListener as nsIWebProgressListener,
+          );
+        } catch {
+          // Listener may already be removed
+        }
+        resolve();
+      }, 30000);
       const complete = async () => {
         if (resolved) return;
         resolved = true;
+        clearTimeout(timeoutId);
         // After load, ensure content actor is ready and body exists
         try {
           let actor = browser.browsingContext?.currentWindowGlobal?.getActor(
@@ -421,6 +472,7 @@ class TabManager {
           browser.webProgress.removeProgressListener(
             progressListener as nsIWebProgressListener,
           );
+          clearTimeout(timeoutId);
           complete();
         },
         onStateChange(
@@ -436,6 +488,7 @@ class TabManager {
             browser.webProgress.removeProgressListener(
               progressListener as nsIWebProgressListener,
             );
+            clearTimeout(timeoutId);
             complete();
           }
         },
@@ -468,10 +521,13 @@ class TabManager {
       ) as WebScraperActor | undefined;
 
       // Retry a few times after navigation for actor readiness
+      // Bug #5: refresh browser reference in case of process swap during retry
       if (!actor) {
         for (let i = 0; i < 150; i++) {
           await new Promise((r) => setTimeout(r, 100));
-          actor = browser.browsingContext?.currentWindowGlobal?.getActor(
+          const freshEntry = this._getEntry(instanceId);
+          if (!freshEntry) break;
+          actor = freshEntry.browser.browsingContext?.currentWindowGlobal?.getActor(
             "NRWebScraper",
           ) as WebScraperActor | undefined;
           if (actor) break;
@@ -525,12 +581,13 @@ class TabManager {
   }
 
   public async attachToTab(browserId: string): Promise<string | null> {
-    const win = getBrowserWindow() as Window & { gBrowser: GBrowser };
-    const gBrowser = win.gBrowser;
-
-    const targetTab = gBrowser.tabs.find(
-      (tab: BrowserTab) => tab.linkedBrowser.browserId.toString() === browserId,
-    );
+    let targetTab: BrowserTab | undefined;
+    for (const win of getBrowserWindows()) {
+      targetTab = win.gBrowser.tabs.find(
+        (tab: BrowserTab) => tab.linkedBrowser.browserId.toString() === browserId,
+      );
+      if (targetTab) break;
+    }
 
     if (!targetTab) {
       return null;
@@ -556,11 +613,11 @@ class TabManager {
   }
 
   public listTabs(): Promise<TabListEntry[]> {
-    const win = getBrowserWindow() as Window & { gBrowser: GBrowser };
-    const gBrowser = win.gBrowser;
-
-    return Promise.resolve(
-      gBrowser.tabs.map((tab: BrowserTab) => {
+    const results: TabListEntry[] = [];
+    for (const win of getBrowserWindows()) {
+      const gBrowser = win.gBrowser;
+      const wid = getWindowId(win);
+      for (const tab of gBrowser.tabs) {
         const browserId = tab.linkedBrowser.browserId.toString();
         // Find if this tab is already an instance
         let instanceId: string | undefined;
@@ -571,23 +628,26 @@ class TabManager {
           }
         }
 
-        return {
+        results.push({
           browserId,
           instanceId,
+          windowId: wid,
           title: tab.label,
           url: tab.linkedBrowser.currentURI.spec,
           selected: tab.selected,
           pinned: tab.pinned,
-        };
-      }),
-    );
+        });
+      }
+    }
+    return Promise.resolve(results);
   }
 
   public async getInstanceInfo(
     instanceId: string,
   ): Promise<TabInstanceInfo | null> {
     const { tab, browser } = this._getInstance(instanceId);
-    const win = getBrowserWindow() as Window & { gBrowser: GBrowser };
+    const win = (browser.ownerGlobal as Window & { gBrowser: GBrowser })
+      ?? (getBrowserWindow() as Window & { gBrowser: GBrowser });
     const gBrowser = win.gBrowser;
 
     const [html, screenshot] = await Promise.all([
@@ -614,22 +674,26 @@ class TabManager {
   public async destroyInstance(instanceId: string): Promise<void> {
     const entry = this._getEntry(instanceId);
     if (!entry) {
-      // Already destroyed or never existed - silently succeed
-      return;
+      throw new Error(`Instance not found: ${instanceId}`);
     }
+    this._destroying.add(instanceId);
     const { tab, browser } = entry;
     try {
-      await this._queryActor(instanceId, "WebScraper:ClearEffects");
-    } catch (error) {
-      void error;
+      try {
+        await this._queryActor(instanceId, "WebScraper:ClearEffects");
+      } catch (error) {
+        void error;
+      }
+      // Remove automated attribute from tab
+      if (tab && tab.removeAttribute) {
+        tab.removeAttribute("data-floorp-os-automated");
+        tab.removeAttribute("data-floorp-os-instance-id");
+      }
+      this._browserInstances.delete(instanceId);
+      TAB_MANAGER_ACTOR_SETS.delete(browser);
+    } finally {
+      this._destroying.delete(instanceId);
     }
-    // Remove automated attribute from tab
-    if (tab && tab.removeAttribute) {
-      tab.removeAttribute("data-floorp-os-automated");
-      tab.removeAttribute("data-floorp-os-instance-id");
-    }
-    this._browserInstances.delete(instanceId);
-    TAB_MANAGER_ACTOR_SETS.delete(browser);
   }
 
   /**
@@ -642,37 +706,41 @@ class TabManager {
   public async closeTab(instanceId: string): Promise<void> {
     const entry = this._getEntry(instanceId);
     if (!entry) {
-      // Already closed or never existed
-      return;
+      throw new Error(`Instance not found: ${instanceId}`);
     }
+    this._destroying.add(instanceId);
 
     const { tab, browser } = entry;
 
-    // First, clear any visual effects
     try {
-      await this._queryActor(instanceId, "WebScraper:ClearEffects");
-    } catch {
-      // ignore
-    }
-
-    // Remove from tracking
-    this._browserInstances.delete(instanceId);
-    TAB_MANAGER_ACTOR_SETS.delete(browser);
-
-    // Remove automated attributes
-    if (tab && tab.removeAttribute) {
-      tab.removeAttribute("data-floorp-os-automated");
-      tab.removeAttribute("data-floorp-os-instance-id");
-    }
-
-    // Actually close the tab
-    try {
-      const win = browser.ownerGlobal as Window & { gBrowser: GBrowser };
-      if (win && !win.closed && win.gBrowser) {
-        win.gBrowser.removeTab(tab);
+      // First, clear any visual effects
+      try {
+        await this._queryActor(instanceId, "WebScraper:ClearEffects");
+      } catch {
+        // ignore
       }
-    } catch (e) {
-      console.error("TabManager: Failed to close tab", e);
+
+      // Remove from tracking
+      this._browserInstances.delete(instanceId);
+      TAB_MANAGER_ACTOR_SETS.delete(browser);
+
+      // Remove automated attributes
+      if (tab && tab.removeAttribute) {
+        tab.removeAttribute("data-floorp-os-automated");
+        tab.removeAttribute("data-floorp-os-instance-id");
+      }
+
+      // Actually close the tab
+      try {
+        const win = browser.ownerGlobal as Window & { gBrowser: GBrowser };
+        if (win && !win.closed && win.gBrowser) {
+          win.gBrowser.removeTab(tab);
+        }
+      } catch (e) {
+        console.error("TabManager: Failed to close tab", e);
+      }
+    } finally {
+      this._destroying.delete(instanceId);
     }
   }
 
@@ -705,7 +773,10 @@ class TabManager {
     await this._delayForUser();
 
     // Re-show control overlay after navigation (new document, new actor)
-    await this._queryActor(instanceId, "WebScraper:ShowControlOverlay");
+    const overlayResult = await this._queryActor(instanceId, "WebScraper:ShowControlOverlay");
+    if (!overlayResult) {
+      console.warn("TabManager: Failed to re-show control overlay after navigation");
+    }
   }
 
   public getURI(instanceId: string): Promise<string> {
