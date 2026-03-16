@@ -838,6 +838,32 @@ class TabManager {
     });
   }
 
+  /**
+   * Resolve an element fingerprint to a CSS selector
+   * This allows LLMs to use fingerprints from Markdown output to interact with elements
+   */
+  public async resolveFingerprint(
+    instanceId: string,
+    fingerprint: string,
+  ): Promise<string | null> {
+    return this._queryActor<string>(instanceId, "WebScraper:ResolveFingerprint", {
+      fingerprint,
+    });
+  }
+
+  /**
+   * Clear all visual effects (highlights, overlays, info panels)
+   * Useful before fingerprint operations to get a clean DOM state
+   */
+  public async clearEffects(instanceId: string): Promise<boolean> {
+    try {
+      await this._queryActor(instanceId, "WebScraper:ClearEffects");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   public async clickElement(
     instanceId: string,
     selector: string,

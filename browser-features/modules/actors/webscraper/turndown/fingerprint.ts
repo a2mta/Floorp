@@ -260,3 +260,151 @@ export function parseSelectorMap(markdown: string): SelectorMapEntry[] {
 
   return results;
 }
+
+/**
+ * Find an element in the DOM by its fingerprint
+ * Walks the DOM tree and generates fingerprints for elements until a match is found
+ *
+ * @param root The root element to search from (usually document.body)
+ * @param fingerprint The fingerprint to search for (short 8-char or full 16-char)
+ * @param options Fingerprint generation options (must match those used to generate the fingerprint)
+ * @param timeout Maximum time in milliseconds to spend searching (default: 5000)
+ * @returns The matching element, or null if not found or timeout exceeded
+ */
+export function findElementByFingerprint(
+  root: Element,
+  fingerprint: string,
+  options: Partial<FingerprintOptions> = {},
+  timeout: number = 5000,
+): Element | null {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const isShortFingerprint = fingerprint.length === 8;
+  const startTime = Date.now();
+
+  // Use TreeWalker for efficient traversal
+  const walker = root.ownerDocument.createTreeWalker(
+    root,
+    NodeFilter.SHOW_ELEMENT,
+  );
+
+  let node: Node | null;
+  let elementCount = 0;
+
+  while ((node = walker.nextNode())) {
+    // Check timeout periodically (every 100 elements)
+    elementCount++;
+    if (elementCount % 100 === 0 && Date.now() - startTime > timeout) {
+      console.warn(
+        `findElementByFingerprint: Timeout after ${elementCount} elements`,
+      );
+      return null;
+    }
+
+    const element = node as Element;
+    const fp = generateFingerprint(element, opts);
+
+    // Match against short or full fingerprint
+    if (isShortFingerprint) {
+      if (fp.short === fingerprint) {
+        return element;
+      }
+    } else {
+      if (fp.full === fingerprint || fp.short === fingerprint) {
+        return element;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Find all elements matching a fingerprint (in case of duplicates)
+ *
+ * @param root The root element to search from
+ * @param fingerprint The fingerprint to search for
+ * @param options Fingerprint generation options
+ * @param timeout Maximum time in milliseconds to spend searching (default: 5000)
+ * @returns Array of matching elements
+ */
+export function findElementsByFingerprint(
+  root: Element,
+  fingerprint: string,
+  options: Partial<FingerprintOptions> = {},
+  timeout: number = 5000,
+): Element[] {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const isShortFingerprint = fingerprint.length === 8;
+  const matches: Element[] = [];
+  const startTime = Date.now();
+
+  const walker = root.ownerDocument.createTreeWalker(
+    root,
+    NodeFilter.SHOW_ELEMENT,
+  );
+
+  let node: Node | null;
+  let elementCount = 0;
+
+  while ((node = walker.nextNode())) {
+    // Check timeout periodically (every 100 elements)
+    elementCount++;
+    if (elementCount % 100 === 0 && Date.now() - startTime > timeout) {
+      console.warn(
+        `findElementsByFingerprint: Timeout after ${elementCount} elements, returning ${matches.length} matches found so far`,
+      );
+      break;
+    }
+
+    const element = node as Element;
+    const fp = generateFingerprint(element, opts);
+
+    if (isShortFingerprint) {
+      if (fp.short === fingerprint) {
+        matches.push(element);
+      }
+    } else {
+      if (fp.full === fingerprint || fp.short === fingerprint) {
+        matches.push(element);
+      }
+    }
+  }
+
+  return matches;
+}
+
+/**
+ * Element locator options - supports either CSS selector or fingerprint
+ */
+export interface ElementLocator {
+  /** CSS selector (e.g., "#submitBtn", "button.primary") */
+  selector?: string;
+  /** Element fingerprint from Markdown output (e.g., "01apofgi") */
+  fingerprint?: string;
+}
+
+/**
+ * Resolve an element locator to an actual DOM element
+ * Supports both CSS selectors and fingerprints, with selector taking priority
+ *
+ * @param document The document to search in
+ * @param locator The element locator (selector or fingerprint)
+ * @param options Fingerprint options (used when locator.fingerprint is provided)
+ * @returns The found element, or null if not found
+ */
+export function resolveElementLocator(
+  document: Document,
+  locator: ElementLocator,
+  options: Partial<FingerprintOptions> = {},
+): Element | null {
+  // Priority: selector > fingerprint
+  if (locator.selector) {
+    return document.querySelector(locator.selector);
+  }
+
+  if (locator.fingerprint && document.body) {
+    return findElementByFingerprint(document.body, locator.fingerprint, options);
+  }
+
+  return null;
+}

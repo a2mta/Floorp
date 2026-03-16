@@ -40,17 +40,39 @@ class FloorpTabManager:
         print(f"{GREEN}✓ Instance ID: {self.instance_id}{NC}")
         return self.instance_id
     
-    def click_element(self, selector: str):
-        """要素をクリック（エフェクト付き）"""
+    def click_element(self, selector: str = None, fingerprint: str = None):
+        """要素をクリック（エフェクト付き）- selector または fingerprint を指定"""
         if not self.instance_id:
             raise ValueError("No instance created")
+        if not selector and not fingerprint:
+            raise ValueError("Either selector or fingerprint must be provided")
+
+        json_data = {}
+        if selector:
+            json_data["selector"] = selector
+        if fingerprint:
+            json_data["fingerprint"] = fingerprint
+
         resp = requests.post(
             f"{self.base_url}/tabs/instances/{self.instance_id}/click",
-            json={"selector": selector}
+            json=json_data
         )
         resp.raise_for_status()
         result = resp.json()
         print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def resolve_fingerprint(self, fingerprint: str):
+        """フィンガープリントからCSSセレクタを解決"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        resp = requests.get(
+            f"{self.base_url}/tabs/instances/{self.instance_id}/resolveFingerprint",
+            params={"fingerprint": fingerprint}
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(f"{BLUE}🔍 Fingerprint {fingerprint} → {result.get('selector', 'not found')}{NC}")
         return result
     
     def fill_form(self, form_data: dict):
@@ -127,12 +149,72 @@ class FloorpTabManager:
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return result
 
-    def get_value(self, selector: str):
+    def get_value(self, selector: str = None, fingerprint: str = None):
+        """Get input value - supports selector OR fingerprint"""
         if not self.instance_id:
             raise ValueError("No instance created")
+        params = {}
+        if selector:
+            params["selector"] = selector
+        if fingerprint:
+            params["fingerprint"] = fingerprint
         resp = requests.get(
             f"{self.base_url}/tabs/instances/{self.instance_id}/value",
-            params={"selector": selector},
+            params=params,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def hover_element(self, selector: str = None, fingerprint: str = None):
+        """Hover over element - supports selector OR fingerprint"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        json_data = {}
+        if selector:
+            json_data["selector"] = selector
+        if fingerprint:
+            json_data["fingerprint"] = fingerprint
+        resp = requests.post(
+            f"{self.base_url}/tabs/instances/{self.instance_id}/hover",
+            json=json_data
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def scroll_to(self, selector: str = None, fingerprint: str = None):
+        """Scroll to element - supports selector OR fingerprint"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        json_data = {}
+        if selector:
+            json_data["selector"] = selector
+        if fingerprint:
+            json_data["fingerprint"] = fingerprint
+        resp = requests.post(
+            f"{self.base_url}/tabs/instances/{self.instance_id}/scrollTo",
+            json=json_data
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def get_element(self, selector: str = None, fingerprint: str = None):
+        """Get element HTML - supports selector OR fingerprint"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        params = {}
+        if selector:
+            params["selector"] = selector
+        if fingerprint:
+            params["fingerprint"] = fingerprint
+        resp = requests.get(
+            f"{self.base_url}/tabs/instances/{self.instance_id}/element",
+            params=params,
         )
         resp.raise_for_status()
         result = resp.json()
@@ -188,6 +270,30 @@ class FloorpTabManager:
         print(f"  Markdown: {text_size:,} chars")
         print(f"  {GREEN}Reduction: {100 - ratio:.1f}%{NC}")
         return {"html_size": html_size, "text_size": text_size, "ratio": ratio}
+
+    def clear_effects(self):
+        """Clear all highlight effects and overlays"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        resp = requests.post(
+            f"{self.base_url}/tabs/instances/{self.instance_id}/clearEffects"
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(f"{BLUE}🧹 Effects cleared{NC}")
+        return result
+
+    def get_text_silent(self, include_selector_map: bool = False):
+        """Get text without printing (for internal use)"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        params = {"includeSelectorMap": "true"} if include_selector_map else {}
+        resp = requests.get(
+            f"{self.base_url}/tabs/instances/{self.instance_id}/text",
+            params=params,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
 
 def main():
@@ -281,6 +387,145 @@ def main():
         time.sleep(2.2)
         print(f"{GREEN}✓ 取得系 API を呼び出し、Inspect ハイライトを確認{NC}")
         print()
+
+        # Step 7: Fingerprint-based operations test
+        print(f"{BLUE}📋 Step 7: Fingerprint-based element operations (comprehensive){NC}")
+        print(f"{BLUE}  └ Clearing effects to get clean DOM...{NC}")
+        manager.clear_effects()
+        time.sleep(0.5)
+
+        # Get fresh fingerprints after clearing effects
+        print(f"{BLUE}  └ Getting fresh fingerprints...{NC}")
+        text_result = manager.get_text_silent()
+        text_content = text_result.get("text", "")
+
+        # Extract fingerprints from the markdown
+        import re
+        fingerprints = re.findall(r'<!--fp:([a-z0-9]{8})-->', text_content)
+        print(f"{GREEN}  ✓ Found {len(fingerprints)} fingerprints{NC}")
+
+        if fingerprints:
+            # Find fingerprints for different element types
+            box_fingerprint = None
+            heading_fingerprint = None
+
+            for i, fp in enumerate(fingerprints):
+                if i < 3:
+                    continue
+                try:
+                    resp = requests.get(
+                        f"{BASE_URL}/tabs/instances/{manager.instance_id}/resolveFingerprint",
+                        params={"fingerprint": fp},
+                    )
+                    if resp.status_code == 200:
+                        result = resp.json()
+                        selector = result.get("selector", "")
+                        if "box" in selector.lower() and not box_fingerprint:
+                            box_fingerprint = fp
+                            print(f"{GREEN}  ✓ Found box element: {fp} → {selector}{NC}")
+                        elif ("h1" in selector or "h2" in selector) and not heading_fingerprint:
+                            heading_fingerprint = fp
+                except:
+                    pass
+
+            # Test with box element if found
+            if box_fingerprint:
+                print(f"{BLUE}  └ Test: Click box element via fingerprint{NC}")
+                try:
+                    click_result = manager.click_element(fingerprint=box_fingerprint)
+                    print(f"{GREEN}    ✓ Click via fingerprint successful{NC}")
+                except Exception as e:
+                    print(f"{RED}    ✗ Click failed: {e}{NC}")
+
+                print(f"{BLUE}  └ Test: Hover element via fingerprint{NC}")
+                try:
+                    hover_result = manager.hover_element(fingerprint=box_fingerprint)
+                    print(f"{GREEN}    ✓ Hover via fingerprint successful{NC}")
+                except Exception as e:
+                    print(f"{RED}    ✗ Hover failed: {e}{NC}")
+
+                print(f"{BLUE}  └ Test: Get element via fingerprint{NC}")
+                try:
+                    elem_result = manager.get_element(fingerprint=box_fingerprint)
+                    print(f"{GREEN}    ✓ Get element via fingerprint successful{NC}")
+                except Exception as e:
+                    print(f"{RED}    ✗ Get element failed: {e}{NC}")
+
+            # Test getValue with fingerprint (name field)
+            # First, find the name field fingerprint by looking at the page content
+            print(f"{BLUE}  └ Test: GetValue via fingerprint (finding input field){NC}")
+            for fp in fingerprints[10:20]:  # Check middle fingerprints
+                try:
+                    resp = requests.get(
+                        f"{BASE_URL}/tabs/instances/{manager.instance_id}/resolveFingerprint",
+                        params={"fingerprint": fp},
+                    )
+                    if resp.status_code == 200:
+                        selector = resp.json().get("selector", "")
+                        if "#name" in selector:
+                            print(f"{GREEN}    Found name field: {fp} → {selector}{NC}")
+                            try:
+                                val_result = manager.get_value(fingerprint=fp)
+                                print(f"{GREEN}    ✓ GetValue via fingerprint successful{NC}")
+                            except Exception as e:
+                                print(f"{RED}    ✗ GetValue failed: {e}{NC}")
+                            break
+                except:
+                    pass
+
+        else:
+            print(f"{YELLOW}  ⚠ No fingerprints found in text output{NC}")
+        print()
+
+        # Step 8: Negative test cases for fingerprint validation
+        print(f"{BLUE}📋 Step 8: Fingerprint validation tests{NC}")
+
+        # Test 8a: Invalid fingerprint format
+        print(f"{BLUE}  └ Test invalid fingerprint format{NC}")
+        try:
+            resp = requests.get(
+                f"{BASE_URL}/tabs/instances/{manager.instance_id}/resolveFingerprint",
+                params={"fingerprint": "invalid!"},
+            )
+            if resp.status_code == 400:
+                print(f"{GREEN}    ✓ Invalid fingerprint correctly rejected with 400{NC}")
+            else:
+                print(f"{YELLOW}    ⚠ Expected 400, got {resp.status_code}{NC}")
+        except Exception as e:
+            print(f"{RED}    ✗ Error: {e}{NC}")
+
+        # Test 8b: Non-existent fingerprint
+        print(f"{BLUE}  └ Test non-existent fingerprint{NC}")
+        try:
+            resp = requests.get(
+                f"{BASE_URL}/tabs/instances/{manager.instance_id}/resolveFingerprint",
+                params={"fingerprint": "zzzzzzzz"},
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            if result.get("selector") is None:
+                print(f"{GREEN}    ✓ Non-existent fingerprint correctly returns null{NC}")
+            else:
+                print(f"{YELLOW}    ⚠ Expected null selector, got: {result.get('selector')}{NC}")
+        except Exception as e:
+            print(f"{RED}    ✗ Error: {e}{NC}")
+
+        # Test 8c: Click with invalid fingerprint
+        print(f"{BLUE}  └ Test click with invalid fingerprint{NC}")
+        try:
+            resp = requests.post(
+                f"{BASE_URL}/tabs/instances/{manager.instance_id}/click",
+                json={"fingerprint": "badformat"},
+            )
+            if resp.status_code == 400:
+                print(f"{GREEN}    ✓ Click with invalid fingerprint correctly rejected with 400{NC}")
+            else:
+                print(f"{YELLOW}    ⚠ Expected 400, got {resp.status_code}{NC}")
+        except Exception as e:
+            print(f"{RED}    ✗ Error: {e}{NC}")
+
+        print(f"{GREEN}✓ Fingerprint validation tests completed{NC}")
+        print()
         
         # クリーンアップ
         print(f"{BLUE}🧹 Cleanup: Destroying instance{NC}")
@@ -299,6 +544,11 @@ def main():
         print(f"      {RED}■{NC} Submit = 赤色")
         print(f"  {GREEN}✓{NC} 各操作での詳細な情報表示（要素名、進捗など）")
         print(f"  {GREEN}✓{NC} 既存APIの自動エフェクト化（新規エンドポイント不要）")
+        print(f"  {GREEN}✓{NC} フィンガープリント機能:")
+        print(f"      - MD出力へのフィンガープリント埋め込み")
+        print(f"      - フィンガープリント → CSSセレクタ解決")
+        print(f"      - フィンガープリント経由での要素クリック")
+        print(f"      - 不正なフィンガープリントの検証（400エラー）")
         print()
         
     except requests.exceptions.RequestException as e:

@@ -26,6 +26,9 @@ export type ScreenshotRect = {
  * Implemented by both WebScraper and TabManager services
  */
 export interface BrowserAutomationService {
+  // Fingerprint resolution (converts fingerprint to CSS selector)
+  resolveFingerprint?(instanceId: string, fingerprint: string): Promise<string | null>;
+
   // Navigation
   navigate(instanceId: string, url: string): Promise<void>;
   getURI(instanceId: string): Promise<string | null>;
@@ -119,4 +122,7 @@ export interface BrowserAutomationService {
 
   // Drag and drop
   dragAndDrop(instanceId: string, sourceSelector: string, targetSelector: string): Promise<boolean>;
+
+  // Visual effects
+  clearEffects?(instanceId: string): Promise<boolean>;
 }
