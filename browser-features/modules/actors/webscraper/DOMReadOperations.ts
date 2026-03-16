@@ -304,7 +304,9 @@ export class DOMReadOperations {
   /**
    * Gets the page content as Markdown.
    * Uses Turndown library to convert HTML to Markdown format.
-   * Excludes script/style/noscript elements for cleaner output.
+   * Removes script/style/noscript elements before conversion.
+   * Note: hidden elements (display:none) are still included in the output,
+   * as Turndown converts them to Markdown. This is intentional for LLM consumption.
    *
    * Also includes content from iframes and Shadow DOM for dynamic sites.
    */
