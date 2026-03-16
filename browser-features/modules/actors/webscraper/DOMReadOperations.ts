@@ -302,60 +302,6 @@ export class DOMReadOperations {
   }
 
   /**
-   * Gets the page content as Markdown.
-   * Uses Turndown library to convert HTML to Markdown format.
-   * Removes script/style/noscript elements before conversion.
-   * Note: hidden elements (display:none) are still included in the output,
-   * as Turndown converts them to Markdown. This is intentional for LLM consumption.
-   *
-   * Also includes content from iframes and Shadow DOM for dynamic sites.
-   */
-  getText(): string | null {
-    try {
-      const doc = this.document;
-      if (!doc?.body) return null;
-
-      // Clone body to avoid modifying the original document
-      const bodyClone = doc.body.cloneNode(true) as Element;
-
-      // Remove non-content elements (scripts, styles, noscript) before conversion
-      const elementsToRemove = bodyClone.querySelectorAll(
-        "script, style, noscript",
-      );
-      for (const elem of Array.from(elementsToRemove)) {
-        elem.remove();
-      }
-
-      // Convert body element to Markdown using TurndownService
-      const markdown = this.markdownConverter.turndown(bodyClone);
-
-      if (!markdown) return null;
-
-      let result = markdown;
-
-      // Also include text from Shadow DOM (for React/Web Components sites)
-      const shadowText = this.getTextFromShadowDOM(doc.body);
-      if (shadowText) {
-        result += "\n\n---\n\n#### Shadow DOM Content\n\n" + shadowText.trim() + "\n\n";
-      }
-
-      // Also include text from iframes (for Gmail, email clients, etc.)
-      const iframeText = this.getTextFromIframes(doc);
-      if (iframeText) {
-        result += "\n\n---\n\n#### iframe Content\n\n" + iframeText.trim() + "\n\n";
-      }
-
-      // Normalize whitespace
-      return result
-        .replace(/\n{3,}/g, "\n\n") // Limit consecutive newlines
-        .trim();
-    } catch (e) {
-      console.error("DOMReadOperations: Error getting text:", e);
-      return null;
-    }
-  }
-
-  /**
    * Gets the page content as Markdown with element fingerprints.
    * Fingerprints are stable identifiers that survive id/class/data-* attribute changes.
    *
@@ -368,12 +314,12 @@ export class DOMReadOperations {
    * @param includeSelectorMap If true, appends a fingerprint-to-element mapping at the end
    * @returns Markdown with embedded fingerprints, or null on error
    */
-  getTextWithFingerprints(includeSelectorMap: boolean = false): string | null {
+  getText(includeSelectorMap: boolean = false): string | null {
     try {
       const doc = this.document;
       if (!doc?.body) return null;
 
-      // Create a new converter instance with fingerprint options
+      // Create converter with fingerprint options (always enabled)
       const fingerprintConverter = new TurndownService({
         headingStyle: "atx",
         codeBlockStyle: "fenced",
@@ -416,9 +362,16 @@ export class DOMReadOperations {
         .replace(/\n{3,}/g, "\n\n") // Limit consecutive newlines
         .trim();
     } catch (e) {
-      console.error("DOMReadOperations: Error getting text with fingerprints:", e);
+      console.error("DOMReadOperations: Error getting text:", e);
       return null;
     }
+  }
+
+  /**
+   * @deprecated Use getText(includeSelectorMap) instead
+   */
+  getTextWithFingerprints(includeSelectorMap: boolean = false): string | null {
+    return this.getText(includeSelectorMap);
   }
 
   /**

@@ -143,7 +143,7 @@ export class NRWebScraperChild extends JSWindowActorChild {
         return domOps.waitForReady(to);
       }
       case "WebScraper:GetText":
-        return domOps.getText();
+        return domOps.getText(message.data?.includeSelectorMap ?? false);
       case "WebScraper:GetHTML":
         return domOps.getHTML();
       case "WebScraper:GetElements":

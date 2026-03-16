@@ -139,20 +139,28 @@ class FloorpTabManager:
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return result
 
-    def get_text(self):
-        """Get page content as Markdown"""
+    def get_text(self, include_selector_map: bool = False):
+        """Get page content as Markdown with element fingerprints"""
         if not self.instance_id:
             raise ValueError("No instance created")
+        params = {"includeSelectorMap": "true"} if include_selector_map else {}
         resp = requests.get(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/text"
+            f"{self.base_url}/tabs/instances/{self.instance_id}/text",
+            params=params,
         )
         resp.raise_for_status()
         result = resp.json()
         text = result.get("text", "")
-        print(f"{GREEN}📄 Markdown Output ({len(text)} chars):{NC}")
+        label = "with Selector Map" if include_selector_map else "with Fingerprints"
+        print(f"{PURPLE}🔍 Markdown {label} ({len(text)} chars):{NC}")
         print("-" * 40)
-        print(text[:500] + ("..." if len(text) > 500 else ""))
+        print(text[:800] + ("..." if len(text) > 800 else ""))
         print("-" * 40)
+
+        # Count fingerprints
+        import re
+        fingerprints = re.findall(r'<!--fp:([a-z0-9]{8})-->', text)
+        print(f"{GREEN}✓ Found {len(fingerprints)} element fingerprints{NC}")
         return result
 
     def get_markdown_size_comparison(self):
@@ -248,8 +256,12 @@ def main():
         manager.get_html()
         time.sleep(2.2)
 
-        print(f"{BLUE}  └ getText (Markdown output){NC}")
+        print(f"{BLUE}  └ getText (Markdown with fingerprints){NC}")
         manager.get_text()
+        time.sleep(2.2)
+
+        print(f"{BLUE}  └ getText with Selector Map{NC}")
+        manager.get_text(include_selector_map=True)
         time.sleep(2.2)
 
         print(f"{BLUE}  └ Size Comparison (HTML vs Markdown){NC}")
