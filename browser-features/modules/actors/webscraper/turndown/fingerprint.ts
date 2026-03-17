@@ -200,11 +200,13 @@ export function generateFingerprint(
   components.push(element.nodeName.toLowerCase());
 
   // 2. Text content (first N characters, normalized)
-  // Use filtered text content that excludes script/style/noscript descendants,
-  // matching the cloned DOM where these elements are removed before conversion.
-  const textContent = getFilteredTextContent(element)
-    .trim()
-    .replace(/\s+/g, " ")
+  // Use element.textContent directly and normalize ALL whitespace away.
+  // Turndown's collapseWhitespace() removes inter-element whitespace nodes
+  // from the cloned DOM, producing "FooBar" instead of "Foo Bar".
+  // To ensure consistent hashes between the clone (getText) and live DOM
+  // (resolveFingerprint), we strip all whitespace before comparison.
+  const textContent = (element.textContent || "")
+    .replace(/\s+/g, "")
     .slice(0, opts.textContentLength);
   if (textContent) {
     components.push(textContent);
