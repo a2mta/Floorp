@@ -211,12 +211,19 @@ export function generateFingerprint(
   }
 
   // 3. Structural context (parent tags + sibling context)
+  // Stop at <body> to ensure consistent paths between cloned DOMs
+  // (where body has no parentElement) and the live document.
   const path: string[] = [];
   let current: Element | null = element;
   let depth = 0;
 
   while (current && depth < opts.parentContextDepth) {
     const tagName = current.nodeName.toLowerCase();
+    // Stop traversal at body — going higher (html, document) would
+    // produce different paths on cloned vs live DOMs
+    if (tagName === "body") {
+      break;
+    }
 
     if (opts.includeSiblingIndex && current.parentElement && current.parentElement.children) {
       // Exclude script/style/noscript and highlight overlays from sibling
