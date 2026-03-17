@@ -66,14 +66,12 @@ interface GBrowser {
  * Type guard to check if an EventTarget is a BrowserTab.
  * Provides runtime safety for event handlers.
  */
-function isBrowserTab(target: EventTarget | null): target is BrowserTab & EventTarget {
+function isBrowserTab(
+  target: EventTarget | null,
+): target is BrowserTab & EventTarget {
   if (!target) return false;
   const t = target as unknown as Record<string, unknown>;
-  return (
-    "linkedBrowser" in t &&
-    "label" in t &&
-    "getAttribute" in t
-  );
+  return "linkedBrowser" in t && "label" in t && "getAttribute" in t;
 }
 
 /**
@@ -82,7 +80,9 @@ function isBrowserTab(target: EventTarget | null): target is BrowserTab & EventT
  * use type assertions. This helper encapsulates the unsafe cast in one place.
  */
 function queryInterface<T>(subject: nsISupports, iid: unknown): T {
-  return (subject as unknown as { QueryInterface(iid: unknown): T }).QueryInterface(iid);
+  return (
+    subject as unknown as { QueryInterface(iid: unknown): T }
+  ).QueryInterface(iid);
 }
 
 // Response types
@@ -194,7 +194,10 @@ class TabManager {
           win.addEventListener(
             "load",
             () => {
-              if ((win as unknown as { gBrowser?: GBrowser }).gBrowser?.tabContainer) {
+              if (
+                (win as unknown as { gBrowser?: GBrowser }).gBrowser
+                  ?.tabContainer
+              ) {
                 this._setupWindowListeners(
                   win as Window & { gBrowser: GBrowser },
                 );
@@ -246,7 +249,9 @@ class TabManager {
           tab.removeAttribute("data-floorp-os-automated");
           tab.removeAttribute("data-floorp-os-instance-id");
         }
-        console.log(`TabManager: Auto-cleaned instance ${instanceId} on tab close`);
+        console.log(
+          `TabManager: Auto-cleaned instance ${instanceId} on tab close`,
+        );
         break;
       }
     }
@@ -516,9 +521,10 @@ class TabManager {
           await new Promise((r) => setTimeout(r, 100));
           const freshEntry = this._getEntry(instanceId);
           if (!freshEntry) break;
-          actor = freshEntry.browser.browsingContext?.currentWindowGlobal?.getActor(
-            "NRWebScraper",
-          ) as WebScraperActor | undefined;
+          actor =
+            freshEntry.browser.browsingContext?.currentWindowGlobal?.getActor(
+              "NRWebScraper",
+            ) as WebScraperActor | undefined;
           if (actor) break;
         }
       }
@@ -573,7 +579,8 @@ class TabManager {
     let targetTab: BrowserTab | undefined;
     for (const win of getBrowserWindows()) {
       targetTab = win.gBrowser.tabs.find(
-        (tab: BrowserTab) => tab.linkedBrowser.browserId.toString() === browserId,
+        (tab: BrowserTab) =>
+          tab.linkedBrowser.browserId.toString() === browserId,
       );
       if (targetTab) break;
     }
@@ -635,8 +642,9 @@ class TabManager {
     instanceId: string,
   ): Promise<TabInstanceInfo | null> {
     const { tab, browser } = this._getInstance(instanceId);
-    const win = (browser.ownerGlobal as Window & { gBrowser: GBrowser })
-      ?? (getBrowserWindow() as Window & { gBrowser: GBrowser });
+    const win =
+      (browser.ownerGlobal as Window & { gBrowser: GBrowser }) ??
+      (getBrowserWindow() as Window & { gBrowser: GBrowser });
     const gBrowser = win.gBrowser;
 
     const [html, screenshot] = await Promise.all([
@@ -762,9 +770,14 @@ class TabManager {
     await this._delayForUser();
 
     // Re-show control overlay after navigation (new document, new actor)
-    const overlayResult = await this._queryActor(instanceId, "WebScraper:ShowControlOverlay");
+    const overlayResult = await this._queryActor(
+      instanceId,
+      "WebScraper:ShowControlOverlay",
+    );
     if (!overlayResult) {
-      console.warn("TabManager: Failed to re-show control overlay after navigation");
+      console.warn(
+        "TabManager: Failed to re-show control overlay after navigation",
+      );
     }
   }
 
@@ -835,9 +848,13 @@ class TabManager {
     instanceId: string,
     fingerprint: string,
   ): Promise<string | null> {
-    return this._queryActor<string>(instanceId, "WebScraper:ResolveFingerprint", {
-      fingerprint,
-    });
+    return this._queryActor<string>(
+      instanceId,
+      "WebScraper:ResolveFingerprint",
+      {
+        fingerprint,
+      },
+    );
   }
 
   /**
@@ -1879,8 +1896,6 @@ class TabManager {
     await this._delayForUser(1000);
     return result;
   }
-
-
 }
 
 // Export a singleton instance of the TabManager service
