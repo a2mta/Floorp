@@ -123,12 +123,37 @@ export class DOMReadOperations {
 
   getElementByText(textContent: string): string | null {
     try {
-      const nodeList = this.document?.querySelectorAll("*") as
-        | NodeListOf<Element>
-        | undefined;
-      if (!nodeList) return null;
-      const elArray = Array.from(nodeList as NodeListOf<Element>) as Element[];
-      for (const el of elArray) {
+      const doc = this.document;
+      if (!doc?.body) return null;
+
+      // Check root element first (TreeWalker skips the root node).
+      // Only match body itself if the text is in body's direct text nodes,
+      // not inherited from child elements — avoids returning the entire page HTML.
+      const bodyText = doc.body.textContent;
+      if (bodyText && bodyText.includes(textContent)) {
+        const childText = Array.from(doc.body.children)
+          .map((c) => c.textContent ?? "")
+          .join("");
+        if (!childText.includes(textContent)) {
+          this.deps.highlightManager.runAsyncInspection(
+            doc.body,
+            "inspectGetElementByText",
+            {
+              text: this.deps.translationHelper.truncate(textContent, 30),
+            },
+          );
+          return String(doc.body.outerHTML);
+        }
+      }
+
+      const walker = doc.createTreeWalker(
+        doc.body,
+        NodeFilter.SHOW_ELEMENT,
+      );
+
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const el = node as Element;
         const txt = el.textContent;
         if (txt && txt.includes(textContent)) {
           this.deps.highlightManager.runAsyncInspection(
@@ -399,7 +424,9 @@ export class DOMReadOperations {
    * Extracts text from Shadow DOM trees.
    * Uses TreeWalker for efficient traversal of large DOMs.
    */
-  private getTextFromShadowDOM(root: Element): string {
+  private getTextFromShadowDOM(root: Element, depth = 0): string {
+    const MAX_SHADOW_DEPTH = 5;
+    if (depth >= MAX_SHADOW_DEPTH) return "";
     let text = "";
 
     try {
@@ -433,7 +460,7 @@ export class DOMReadOperations {
           }
 
           // Recursively handle nested shadow roots
-          text += this.getTextFromShadowDOM(shadowRoot as Element);
+          text += this.getTextFromShadowDOM(shadowRoot as Element, depth + 1);
         }
       }
     } catch (e) {

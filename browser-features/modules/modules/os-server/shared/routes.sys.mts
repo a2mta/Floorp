@@ -154,7 +154,7 @@ export function registerCommonAutomationRoutes(
   ns.get("/instances/:id/html", async (ctx: RouterContext) => {
     const service = getService();
     const html = await service.getHTML(ctx.params.id);
-    return { status: 200, body: html != null ? { html } : {} };
+    return { status: 200, body: { html } };
   });
 
   // Get visible text content (as Markdown with element fingerprints)
@@ -387,7 +387,7 @@ export function registerCommonAutomationRoutes(
   ns.get("/instances/:id/screenshot", async (ctx: RouterContext) => {
     const service = getService();
     const image = await service.takeScreenshot(ctx.params.id);
-    return { status: 200, body: image != null ? { image } : {} };
+    return { status: 200, body: { image } };
   });
 
   // Take element screenshot by selector or fingerprint
@@ -416,7 +416,7 @@ export function registerCommonAutomationRoutes(
   ns.get("/instances/:id/fullPageScreenshot", async (ctx: RouterContext) => {
     const service = getService();
     const image = await service.takeFullPageScreenshot(ctx.params.id);
-    return { status: 200, body: image != null ? { image } : {} };
+    return { status: 200, body: { image } };
   });
 
   // Take region screenshot
@@ -424,7 +424,7 @@ export function registerCommonAutomationRoutes(
     const json = ctx.json() as { rect?: ScreenshotRect } | null;
     const service = getService();
     const image = await service.takeRegionScreenshot(ctx.params.id, json?.rect);
-    return { status: 200, body: image != null ? { image } : {} };
+    return { status: 200, body: { image } };
   });
 
   // Fill form fields (selector keys, or fingerprint keys when resolvable)

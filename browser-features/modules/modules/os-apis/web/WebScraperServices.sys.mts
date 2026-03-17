@@ -13,7 +13,9 @@
  */
 
 import type { WaitForElementState } from "../../os-server/shared/types.ts";
-import { GlobalHTTPTracker, AutomationConstants } from "../../os-server/shared/http-tracker.sys.mts";
+import { GlobalHTTPTracker } from "./shared/GlobalHTTPTracker.sys.mts";
+import { AutomationConstants } from "../../os-server/shared/http-tracker.sys.mts";
+import { PROGRESS_LISTENERS } from "./shared/ProgressListeners.sys.mts";
 
 const { E10SUtils } = ChromeUtils.importESModule(
   "resource://gre/modules/E10SUtils.sys.mjs",
@@ -25,9 +27,6 @@ const { setTimeout, clearTimeout } = ChromeUtils.importESModule(
   "resource://gre/modules/Timer.sys.mjs",
 );
 
-// Initialize the shared HTTP tracker
-GlobalHTTPTracker.init();
-
 // Actor interface for WebScraper communication
 interface WebScraperActor {
   sendQuery(name: string, data?: object): Promise<unknown>;
@@ -35,7 +34,6 @@ interface WebScraperActor {
 
 // Global sets to prevent garbage collection of active components
 const SCRAPER_ACTOR_SETS: Set<XULBrowserElement> = new Set();
-const PROGRESS_LISTENERS = new Set();
 const FRAME = new HiddenFrame();
 
 /**
@@ -152,7 +150,7 @@ class webScraper {
       // Clean up GlobalHTTPTracker for this instance's browsing context
       const bcid = browser.browsingContext?.id;
       if (bcid !== undefined && bcid !== null) {
-        GlobalHTTPTracker.clearForContext(bcid);
+        GlobalHTTPTracker.activeRequests.delete(bcid);
       }
       browser.remove();
       this._browserInstances.delete(instanceId);
@@ -175,67 +173,47 @@ class webScraper {
    * @returns Promise<void> - Resolves when the page has finished loading
    * @throws Error - If the browser instance is not found
    */
-  public navigate(instanceId: string, url: string): Promise<void> {
+  public async navigate(instanceId: string, url: string): Promise<void> {
     const browser = this._browserInstances.get(instanceId);
     if (!browser) {
       throw new Error(`Browser not found for instance ${instanceId}`);
     }
 
     const principal = Services.scriptSecurityManager.getSystemPrincipal();
-    return new Promise((resolve) => {
+    const oa = E10SUtils.predictOriginAttributes({
+      browser,
+    });
+    const loadURIOptions = {
+      triggeringPrincipal: principal,
+      remoteType: E10SUtils.getRemoteTypeForURI(
+        url,
+        true,
+        false,
+        E10SUtils.DEFAULT_REMOTE_TYPE,
+        null,
+        oa,
+      ),
+    };
+
+    const uri = Services.io.newURI(url);
+
+    await this._delayForUser();
+    if (typeof browser.loadURI === "function") {
+      browser.loadURI(uri, loadURIOptions);
+    } else {
+      throw new Error("browser.loadURI is not defined");
+    }
+
+    // Wait for page load via progress listener
+    await new Promise<void>((resolve) => {
       let resolved = false;
-      const complete = async () => {
+      const complete = () => {
         if (resolved) return;
         resolved = true;
-        try {
-          const actor = await this._getActorForBrowser(browser, 150, 100); // up to ~15s
-          if (actor) {
-            // Prefer explicit readiness wait in the child actor
-            const ok = await actor
-              .sendQuery("WebScraper:WaitForReady", { timeout: 15000 })
-              .catch(() => false);
-            if (!ok) {
-              await actor
-                .sendQuery("WebScraper:WaitForElement", {
-                  selector: "body",
-                  timeout: 15000,
-                })
-                .catch(() => null);
-            }
-          }
-        } catch {
-          // ignore
-        }
-        await this._delayForUser();
         resolve();
       };
-      const oa = E10SUtils.predictOriginAttributes({
-        browser,
-      });
-      const loadURIOptions = {
-        triggeringPrincipal: principal,
-        remoteType: E10SUtils.getRemoteTypeForURI(
-          url,
-          true,
-          false,
-          E10SUtils.DEFAULT_REMOTE_TYPE,
-          null,
-          oa,
-        ),
-      };
-
-      const uri = Services.io.newURI(url);
 
       const { webProgress } = browser;
-
-      // Delay before navigation
-      this._delayForUser().then(() => {
-        if (typeof browser.loadURI === "function") {
-          browser.loadURI(uri, loadURIOptions);
-        } else {
-          throw new Error("browser.loadURI is not defined");
-        }
-      });
 
       /**
        * Progress listener to monitor page load completion
@@ -303,6 +281,27 @@ class webScraper {
           (Ci.nsIWebProgress.NOTIFY_STATE_DOCUMENT ?? 0),
       );
     });
+
+    // Wait for content actor readiness
+    try {
+      const actor = await this._getActorForBrowser(browser, 150, 100);
+      if (actor) {
+        const ok = await actor
+          .sendQuery("WebScraper:WaitForReady", { timeout: 15000 })
+          .catch(() => false);
+        if (!ok) {
+          await actor
+            .sendQuery("WebScraper:WaitForElement", {
+              selector: "body",
+              timeout: 15000,
+            })
+            .catch(() => null);
+        }
+      }
+    } catch {
+      // ignore
+    }
+    await this._delayForUser();
   }
 
   public getURI(instanceId: string): Promise<string | null> {

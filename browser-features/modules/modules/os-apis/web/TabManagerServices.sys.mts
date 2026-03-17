@@ -7,7 +7,8 @@
  */
 
 import type { WaitForElementState } from "../../os-server/shared/types.ts";
-import { GlobalHTTPTracker } from "../../os-server/shared/http-tracker.sys.mts";
+import { GlobalHTTPTracker } from "./shared/GlobalHTTPTracker.sys.mts";
+import { PROGRESS_LISTENERS } from "./shared/ProgressListeners.sys.mts";
 
 const { E10SUtils } = ChromeUtils.importESModule(
   "resource://gre/modules/E10SUtils.sys.mjs",
@@ -15,9 +16,6 @@ const { E10SUtils } = ChromeUtils.importESModule(
 const { setTimeout, clearTimeout } = ChromeUtils.importESModule(
   "resource://gre/modules/Timer.sys.mjs",
 );
-
-// Initialize the shared HTTP tracker
-GlobalHTTPTracker.init();
 
 // Actor interface for WebScraper communication
 interface WebScraperActor {
@@ -39,17 +37,7 @@ interface BrowserTab {
 interface GBrowser {
   tabs: BrowserTab[];
   selectedTab: BrowserTab;
-  tabContainer: EventTarget & {
-    addEventListener(
-      type: "TabClose" | "TabOpen" | "TabSelect",
-      listener: (event: Event) => void,
-      options?: AddEventListenerOptions,
-    ): void;
-    removeEventListener(
-      type: "TabClose" | "TabOpen" | "TabSelect",
-      listener: (event: Event) => void,
-    ): void;
-  };
+  tabContainer: EventTarget & { addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void };
   addTab(
     url: string,
     options: {
@@ -60,29 +48,6 @@ interface GBrowser {
   ): BrowserTab;
   removeTab(tab: BrowserTab): void;
   getIcon(tab: BrowserTab): string | null;
-}
-
-/**
- * Type guard to check if an EventTarget is a BrowserTab.
- * Provides runtime safety for event handlers.
- */
-function isBrowserTab(
-  target: EventTarget | null,
-): target is BrowserTab & EventTarget {
-  if (!target) return false;
-  const t = target as unknown as Record<string, unknown>;
-  return "linkedBrowser" in t && "label" in t && "getAttribute" in t;
-}
-
-/**
- * Helper for XPCOM QueryInterface casting.
- * Gecko's nsISupports.QueryInterface is dynamically typed, so we need to
- * use type assertions. This helper encapsulates the unsafe cast in one place.
- */
-function queryInterface<T>(subject: nsISupports, iid: unknown): T {
-  return (
-    subject as unknown as { QueryInterface(iid: unknown): T }
-  ).QueryInterface(iid);
 }
 
 // Response types
@@ -110,7 +75,6 @@ interface TabInstanceInfo {
 
 // Global sets to prevent garbage collection of active components
 const TAB_MANAGER_ACTOR_SETS: Set<XULBrowserElement> = new Set();
-const PROGRESS_LISTENERS = new Set();
 
 /**
  * A utility function to get the most recent browser window.
@@ -190,7 +154,8 @@ class TabManager {
     Services.obs.addObserver(
       {
         observe: (subject: nsISupports) => {
-          const win = queryInterface<Window>(subject, Ci.nsIDOMWindow);
+          // deno-lint-ignore no-explicit-any
+          const win = (subject as any).QueryInterface(Ci.nsIDOMWindow) as Window;
           win.addEventListener(
             "load",
             () => {
@@ -208,6 +173,18 @@ class TabManager {
         },
       },
       "domwindowopened",
+    );
+
+    // Clean up _listenedWindows when windows are closed
+    Services.obs.addObserver(
+      {
+        observe: (subject: nsISupports) => {
+          // deno-lint-ignore no-explicit-any
+          const win = (subject as any).QueryInterface(Ci.nsIDOMWindow) as Window;
+          this._listenedWindows.delete(win);
+        },
+      },
+      "domwindowclosed",
     );
   }
 
@@ -230,17 +207,13 @@ class TabManager {
    * Prevents zombie entries when tabs are closed manually by the user.
    */
   private _onTabClose = (event: Event) => {
-    if (!isBrowserTab(event.target)) {
-      console.warn("TabManager: TabClose event with invalid target");
-      return;
-    }
-    const tab = event.target;
+    const tab = event.target as unknown as BrowserTab;
     for (const [instanceId, entry] of this._browserInstances.entries()) {
       if (entry.tab === tab) {
         // Clean up GlobalHTTPTracker for this tab's browsing context
         const bcid = entry.browser.browsingContext?.id;
         if (bcid !== undefined && bcid !== null) {
-          GlobalHTTPTracker.clearForContext(bcid);
+          GlobalHTTPTracker.activeRequests.delete(bcid);
         }
         this._browserInstances.delete(instanceId);
         TAB_MANAGER_ACTOR_SETS.delete(entry.browser);
@@ -416,7 +389,7 @@ class TabManager {
             "NRWebScraper",
           ) as WebScraperActor | undefined;
           if (!actor) {
-            for (let i = 0; i < 150; i++) {
+            for (let i = 0; i < 50; i++) {
               await new Promise((r) => setTimeout(r, 100));
               actor = browser.browsingContext?.currentWindowGlobal?.getActor(
                 "NRWebScraper",
@@ -427,18 +400,18 @@ class TabManager {
           if (actor) {
             // Prefer readiness wait; fallback to element waits for heavy SPAs (X.com等)
             let ok = await actor
-              .sendQuery("WebScraper:WaitForReady", { timeout: 20000 })
+              .sendQuery("WebScraper:WaitForReady", { timeout: 5000 })
               .catch(() => false);
-            const tryWait = async (sel: string, to = 20000) =>
+            const tryWait = async (sel: string, to = 5000) =>
               await actor!.sendQuery("WebScraper:WaitForElement", {
                 selector: sel,
                 timeout: to,
               });
             if (!ok)
-              ok = (await tryWait("body", 20000).catch(() => false)) as boolean;
+              ok = (await tryWait("body", 5000).catch(() => false)) as boolean;
             if (!ok)
-              ok = (await tryWait("html", 8000).catch(() => false)) as boolean;
-            if (!ok) await tryWait("main", 8000).catch(() => false);
+              ok = (await tryWait("html", 3000).catch(() => false)) as boolean;
+            if (!ok) await tryWait("main", 3000).catch(() => false);
           }
         } catch {
           // ignore
@@ -559,6 +532,13 @@ class TabManager {
     await this._waitForLoad(browser, url);
     await this._delayForUser();
 
+    // Check tab is still alive (user may have closed it during load)
+    const currentBrowser = tab.linkedBrowser;
+    if (!currentBrowser?.ownerGlobal ||
+      (currentBrowser.ownerGlobal as Window).closed) {
+      throw new Error("Tab was closed during load");
+    }
+
     const instanceId = crypto.randomUUID();
     this._browserInstances.set(instanceId, { tab, browser });
     TAB_MANAGER_ACTOR_SETS.add(browser);
@@ -642,10 +622,12 @@ class TabManager {
     instanceId: string,
   ): Promise<TabInstanceInfo | null> {
     const { tab, browser } = this._getInstance(instanceId);
-    const win =
-      (browser.ownerGlobal as Window & { gBrowser: GBrowser }) ??
-      (getBrowserWindow() as Window & { gBrowser: GBrowser });
-    const gBrowser = win.gBrowser;
+    const win = (browser.ownerGlobal as Window & { gBrowser: GBrowser })
+      ?? (getBrowserWindow() as Window & { gBrowser: GBrowser });
+    const gBrowser = win?.gBrowser;
+    if (!gBrowser) {
+      return null;
+    }
 
     const [html, screenshot] = await Promise.all([
       this.getHTML(instanceId),
@@ -766,7 +748,11 @@ class TabManager {
       // Throw an error if loadURI is not available
       throw new Error("browser.loadURI is not defined");
     }
-    await this._waitForLoad(browser, url);
+
+    // Refresh browser reference after loadURI (process swap may occur on cross-origin nav)
+    const freshEntry = this._getEntry(instanceId);
+    const loadBrowser = freshEntry?.browser ?? browser;
+    await this._waitForLoad(loadBrowser, url);
     await this._delayForUser();
 
     // Re-show control overlay after navigation (new document, new actor)

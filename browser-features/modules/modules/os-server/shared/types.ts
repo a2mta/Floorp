@@ -63,6 +63,20 @@ export type BooleanResponse = { value?: boolean; error?: string };
 export type ScreenshotResponse = { image?: string; error?: string };
 
 /**
+ * Cookie data type for get/set cookie operations
+ */
+export interface CookieData {
+  name: string;
+  value: string;
+  domain?: string;
+  path?: string;
+  secure?: boolean;
+  httpOnly?: boolean;
+  sameSite?: "Strict" | "Lax" | "None";
+  expirationDate?: number;
+}
+
+/**
  * Common browser automation service interface
  * Implemented by both WebScraper and TabManager services
  */
@@ -141,8 +155,8 @@ export interface BrowserAutomationService {
   takeRegionScreenshot(instanceId: string, rect?: ScreenshotRect): Promise<string | null>;
 
   // Cookie management
-  getCookies(instanceId: string): Promise<unknown[]>;
-  setCookie(instanceId: string, cookie: unknown): Promise<boolean>;
+  getCookies(instanceId: string): Promise<CookieData[]>;
+  setCookie(instanceId: string, cookie: CookieData): Promise<boolean | null>;
 
   // Advanced operations
   setInnerHTML(instanceId: string, selector: string, html: string): Promise<boolean | null>;
