@@ -7,6 +7,7 @@
  */
 
 import type { WaitForElementState } from "../../os-server/shared/types.ts";
+import { GlobalHTTPTracker } from "../../os-server/shared/http-tracker.sys.mts";
 
 const { E10SUtils } = ChromeUtils.importESModule(
   "resource://gre/modules/E10SUtils.sys.mjs",
@@ -15,59 +16,9 @@ const { setTimeout, clearTimeout } = ChromeUtils.importESModule(
   "resource://gre/modules/Timer.sys.mjs",
 );
 
-/**
- * Global HTTP request tracker to accurately monitor network idle state.
- * This tracker lives for the lifetime of the module and monitors all instances.
- */
-const GlobalHTTPTracker = {
-  activeRequests: new Map<number, Set<nsIRequest>>(),
-
-  init() {
-    try {
-      Services.obs.addObserver(this, "http-on-opening-request");
-      Services.obs.addObserver(this, "http-on-stop-request");
-    } catch (e) {
-      console.error("TabManager: GlobalHTTPTracker init failed:", e);
-    }
-  },
-
-  observe(subject: nsISupports, topic: string, _data: string | null) {
-    try {
-      // deno-lint-ignore no-explicit-any
-      const channel = (subject as any).QueryInterface(Ci.nsIHttpChannel);
-      const bcid = channel.loadInfo?.browsingContextID;
-      if (!bcid) return;
-
-      if (topic === "http-on-opening-request") {
-        const url = channel.URI.spec;
-        if (url.startsWith("http") || url.startsWith("https")) {
-          let requests = this.activeRequests.get(bcid);
-          if (!requests) {
-            requests = new Set();
-            this.activeRequests.set(bcid, requests);
-          }
-          requests.add(channel);
-        }
-      } else if (topic === "http-on-stop-request") {
-        const requests = this.activeRequests.get(bcid);
-        if (requests) {
-          requests.delete(channel);
-          if (requests.size === 0) {
-            this.activeRequests.delete(bcid);
-          }
-        }
-      }
-    } catch {
-      // Ignore
-    }
-  },
-
-  getActiveCount(bcid: number): number {
-    return this.activeRequests.get(bcid)?.size || 0;
-  },
-};
-
+// Initialize the shared HTTP tracker
 GlobalHTTPTracker.init();
+
 // Actor interface for WebScraper communication
 interface WebScraperActor {
   sendQuery(name: string, data?: object): Promise<unknown>;
@@ -88,6 +39,17 @@ interface BrowserTab {
 interface GBrowser {
   tabs: BrowserTab[];
   selectedTab: BrowserTab;
+  tabContainer: EventTarget & {
+    addEventListener(
+      type: "TabClose" | "TabOpen" | "TabSelect",
+      listener: (event: Event) => void,
+      options?: AddEventListenerOptions,
+    ): void;
+    removeEventListener(
+      type: "TabClose" | "TabOpen" | "TabSelect",
+      listener: (event: Event) => void,
+    ): void;
+  };
   addTab(
     url: string,
     options: {
@@ -98,6 +60,29 @@ interface GBrowser {
   ): BrowserTab;
   removeTab(tab: BrowserTab): void;
   getIcon(tab: BrowserTab): string | null;
+}
+
+/**
+ * Type guard to check if an EventTarget is a BrowserTab.
+ * Provides runtime safety for event handlers.
+ */
+function isBrowserTab(target: EventTarget | null): target is BrowserTab & EventTarget {
+  if (!target) return false;
+  const t = target as unknown as Record<string, unknown>;
+  return (
+    "linkedBrowser" in t &&
+    "label" in t &&
+    "getAttribute" in t
+  );
+}
+
+/**
+ * Helper for XPCOM QueryInterface casting.
+ * Gecko's nsISupports.QueryInterface is dynamically typed, so we need to
+ * use type assertions. This helper encapsulates the unsafe cast in one place.
+ */
+function queryInterface<T>(subject: nsISupports, iid: unknown): T {
+  return (subject as unknown as { QueryInterface(iid: unknown): T }).QueryInterface(iid);
 }
 
 // Response types
@@ -205,7 +190,7 @@ class TabManager {
     Services.obs.addObserver(
       {
         observe: (subject: nsISupports) => {
-          const win = subject.QueryInterface(Ci.nsIDOMWindow) as Window;
+          const win = queryInterface<Window>(subject, Ci.nsIDOMWindow);
           win.addEventListener(
             "load",
             () => {
@@ -242,13 +227,17 @@ class TabManager {
    * Prevents zombie entries when tabs are closed manually by the user.
    */
   private _onTabClose = (event: Event) => {
-    const tab = event.target as BrowserTab;
+    if (!isBrowserTab(event.target)) {
+      console.warn("TabManager: TabClose event with invalid target");
+      return;
+    }
+    const tab = event.target;
     for (const [instanceId, entry] of this._browserInstances.entries()) {
       if (entry.tab === tab) {
         // Clean up GlobalHTTPTracker for this tab's browsing context
         const bcid = entry.browser.browsingContext?.id;
         if (bcid !== undefined && bcid !== null) {
-          GlobalHTTPTracker.activeRequests.delete(bcid);
+          GlobalHTTPTracker.clearForContext(bcid);
         }
         this._browserInstances.delete(instanceId);
         TAB_MANAGER_ACTOR_SETS.delete(entry.browser);
@@ -842,7 +831,7 @@ class TabManager {
    * Resolve an element fingerprint to a CSS selector
    * This allows LLMs to use fingerprints from Markdown output to interact with elements
    */
-  public async resolveFingerprint(
+  public resolveFingerprint(
     instanceId: string,
     fingerprint: string,
   ): Promise<string | null> {

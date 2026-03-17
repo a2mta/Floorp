@@ -21,6 +21,47 @@ export type ScreenshotRect = {
   height?: number;
 };
 
+// =============================================================================
+// Common API Response Types
+// =============================================================================
+
+/**
+ * Standard response for action endpoints (click, hover, submit, etc.)
+ * Returns ok=true on success, or error message on failure.
+ */
+export type ActionResponse = { ok?: boolean; error?: string };
+
+/**
+ * Response for data retrieval endpoints
+ * Returns the requested data or error message.
+ */
+export type DataResponse<T> = { data?: T; error?: string };
+
+/**
+ * Response for text content endpoints
+ */
+export type TextResponse = { text?: string; error?: string };
+
+/**
+ * Response for element endpoints
+ */
+export type ElementResponse = { element?: string; error?: string };
+
+/**
+ * Response for value endpoints
+ */
+export type ValueResponse = { value?: string | null; error?: string };
+
+/**
+ * Response for boolean state endpoints (isVisible, isEnabled)
+ */
+export type BooleanResponse = { value?: boolean; error?: string };
+
+/**
+ * Response for screenshot endpoints
+ */
+export type ScreenshotResponse = { image?: string; error?: string };
+
 /**
  * Common browser automation service interface
  * Implemented by both WebScraper and TabManager services
@@ -59,29 +100,29 @@ export interface BrowserAutomationService {
   isEnabled(instanceId: string, selector: string): Promise<boolean>;
 
   // Element interactions
-  clickElement(instanceId: string, selector: string): Promise<boolean>;
-  doubleClick?(instanceId: string, selector: string): Promise<boolean>;
-  rightClick?(instanceId: string, selector: string): Promise<boolean>;
-  hoverElement(instanceId: string, selector: string): Promise<boolean>;
-  scrollToElement(instanceId: string, selector: string): Promise<boolean>;
-  focusElement?(instanceId: string, selector: string): Promise<boolean>;
+  clickElement(instanceId: string, selector: string): Promise<boolean | null>;
+  doubleClick?(instanceId: string, selector: string): Promise<boolean | null>;
+  rightClick?(instanceId: string, selector: string): Promise<boolean | null>;
+  hoverElement(instanceId: string, selector: string): Promise<boolean | null>;
+  scrollToElement(instanceId: string, selector: string): Promise<boolean | null>;
+  focusElement?(instanceId: string, selector: string): Promise<boolean | null>;
 
   // Form operations
   fillForm(
     instanceId: string,
     formData: Record<string, string>,
     options?: { typingMode?: boolean; typingDelayMs?: number },
-  ): Promise<boolean>;
+  ): Promise<boolean | null>;
   inputElement?(
     instanceId: string,
     selector: string,
     value: string,
     options?: { typingMode?: boolean; typingDelayMs?: number },
-  ): Promise<boolean>;
-  clearInput(instanceId: string, selector: string): Promise<boolean>;
-  submit(instanceId: string, selector: string): Promise<boolean>;
-  selectOption(instanceId: string, selector: string, value: string): Promise<boolean>;
-  setChecked(instanceId: string, selector: string, checked: boolean): Promise<boolean>;
+  ): Promise<boolean | null>;
+  clearInput(instanceId: string, selector: string): Promise<boolean | null>;
+  submit(instanceId: string, selector: string): Promise<boolean | null>;
+  selectOption(instanceId: string, selector: string, value: string): Promise<boolean | null>;
+  setChecked(instanceId: string, selector: string, checked: boolean): Promise<boolean | null>;
 
   // Waiting
   waitForElement(
@@ -89,9 +130,9 @@ export interface BrowserAutomationService {
     selector: string,
     timeout?: number,
     state?: WaitForElementState,
-  ): Promise<boolean>;
-  waitForReady(instanceId: string, timeout?: number): Promise<boolean>;
-  waitForNetworkIdle?(instanceId: string, timeout?: number): Promise<boolean>;
+  ): Promise<boolean | null>;
+  waitForReady(instanceId: string, timeout?: number): Promise<boolean | null>;
+  waitForNetworkIdle?(instanceId: string, timeout?: number): Promise<boolean | null>;
 
   // Screenshots
   takeScreenshot(instanceId: string): Promise<string | null>;
@@ -104,24 +145,24 @@ export interface BrowserAutomationService {
   setCookie(instanceId: string, cookie: unknown): Promise<boolean>;
 
   // Advanced operations
-  setInnerHTML(instanceId: string, selector: string, html: string): Promise<boolean>;
-  setTextContent(instanceId: string, selector: string, text: string): Promise<boolean>;
+  setInnerHTML(instanceId: string, selector: string, html: string): Promise<boolean | null>;
+  setTextContent(instanceId: string, selector: string, text: string): Promise<boolean | null>;
   dispatchEvent(
     instanceId: string,
     selector: string,
     eventType: string,
     options?: { bubbles?: boolean; cancelable?: boolean },
-  ): Promise<boolean>;
-  pressKey?(instanceId: string, key: string): Promise<boolean>;
-  uploadFile?(instanceId: string, selector: string, filePath: string): Promise<boolean>;
-  dispatchTextInput(instanceId: string, selector: string, text: string): Promise<boolean>;
+  ): Promise<boolean | null>;
+  pressKey?(instanceId: string, key: string): Promise<boolean | null>;
+  uploadFile?(instanceId: string, selector: string, filePath: string): Promise<boolean | null>;
+  dispatchTextInput(instanceId: string, selector: string, text: string): Promise<boolean | null>;
 
   // Dialogs
-  acceptAlert?(instanceId: string): Promise<boolean>;
-  dismissAlert?(instanceId: string): Promise<boolean>;
+  acceptAlert?(instanceId: string): Promise<boolean | null>;
+  dismissAlert?(instanceId: string): Promise<boolean | null>;
 
   // Drag and drop
-  dragAndDrop(instanceId: string, sourceSelector: string, targetSelector: string): Promise<boolean>;
+  dragAndDrop(instanceId: string, sourceSelector: string, targetSelector: string): Promise<boolean | null>;
 
   // Visual effects
   clearEffects?(instanceId: string): Promise<boolean>;
