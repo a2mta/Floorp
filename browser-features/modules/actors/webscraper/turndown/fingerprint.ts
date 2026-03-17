@@ -45,6 +45,14 @@ const DEFAULT_OPTIONS: FingerprintOptions = {
 };
 
 /**
+ * Tag names excluded from sibling index calculation.
+ * These elements are removed from the cloned DOM before Markdown conversion
+ * (in DOMReadOperations.getText), so they must also be excluded when
+ * computing fingerprints on the original DOM to ensure consistent results.
+ */
+const STRUCTURAL_EXCLUDED_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT"]);
+
+/**
  * Simple non-cryptographic hash function (djb2 variant)
  * Fast and produces consistent results across runs
  */
@@ -124,7 +132,11 @@ export function generateFingerprint(
     const tagName = current.nodeName.toLowerCase();
 
     if (opts.includeSiblingIndex && current.parentElement && current.parentElement.children) {
-      const siblings = Array.from(current.parentElement.children);
+      // Exclude script/style/noscript from sibling counting so fingerprints
+      // are consistent between the original DOM and the clone used for
+      // Markdown conversion (where these elements are removed).
+      const siblings = Array.from(current.parentElement.children)
+        .filter((s) => !STRUCTURAL_EXCLUDED_TAGS.has(s.nodeName));
       const index = siblings.indexOf(current);
       path.unshift(`${tagName}[${index}]`);
     } else {
@@ -172,11 +184,13 @@ export function formatFingerprintComment(fingerprint: ElementFingerprint): strin
 }
 
 /**
- * Format fingerprint as selector map entry
+ * Format fingerprint as selector map entry.
+ * Uses `fp:` prefix to avoid conflict with Markdown link reference syntax.
+ *
  * @param fingerprint The fingerprint to format
  * @param tagName The element's tag name
  * @param textPreview Text preview for the entry
- * @returns Selector map entry string like "[abc12345def67890]: p \"Preview text\""
+ * @returns Selector map entry string like "fp:abc12345def67890 | p | \"Preview text\""
  */
 export function formatSelectorMapEntry(
   fingerprint: ElementFingerprint,
@@ -189,7 +203,7 @@ export function formatSelectorMapEntry(
     .replace(/\n/g, " ")
     .replace(/"/g, '\\"')
     .slice(0, 50);
-  return `[${fingerprint.full}]: ${tagName} "${preview}"`;
+  return `fp:${fingerprint.full} | ${tagName} | "${preview}"`;
 }
 
 /**
@@ -238,14 +252,16 @@ export interface SelectorMapEntry {
 }
 
 /**
- * Parse selector map from markdown content
+ * Parse selector map from markdown content.
+ * Matches entries in the format: `fp:abc12345def67890 | tagName | "text preview"`
+ *
  * @param markdown Markdown content with selector map
  * @returns Array of selector map entries
  */
 export function parseSelectorMap(markdown: string): SelectorMapEntry[] {
-  // Regex handles escaped quotes (\") within the text preview
+  // Matches: fp:<16-char fingerprint> | <tag name> | "text preview"
   // Tag name pattern allows hyphens for custom elements (e.g., my-component)
-  const regex = /\[([a-z0-9]{16})\]:\s*([\w-]+)\s*"((?:[^"\\]|\\.)*)"/g;
+  const regex = /fp:([a-z0-9]{16})\s*\|\s*([\w-]+)\s*\|\s*"((?:[^"\\]|\\.)*)"/g;
   const results: SelectorMapEntry[] = [];
   let match: RegExpExecArray | null;
 

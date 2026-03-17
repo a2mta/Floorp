@@ -790,8 +790,13 @@ class TabManager {
     return this._queryActor<string>(instanceId, "WebScraper:GetHTML");
   }
 
-  public getText(instanceId: string): Promise<string | null> {
-    return this._queryActor<string>(instanceId, "WebScraper:GetText");
+  public getText(
+    instanceId: string,
+    includeSelectorMap: boolean = false,
+  ): Promise<string | null> {
+    return this._queryActor<string>(instanceId, "WebScraper:GetText", {
+      includeSelectorMap,
+    });
   }
 
   public getElements(instanceId: string, selector: string): Promise<string[]> {

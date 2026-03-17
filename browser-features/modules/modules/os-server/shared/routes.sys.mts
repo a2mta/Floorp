@@ -157,10 +157,12 @@ export function registerCommonAutomationRoutes(
     return { status: 200, body: html != null ? { html } : {} };
   });
 
-  // Get visible text content (as Markdown)
+  // Get visible text content (as Markdown with element fingerprints)
   ns.get("/instances/:id/text", async (ctx: RouterContext) => {
+    const includeSelectorMap =
+      ctx.searchParams.get("includeSelectorMap") === "true";
     const service = getService();
-    const text = await service.getText(ctx.params.id);
+    const text = await service.getText(ctx.params.id, includeSelectorMap);
     return { status: 200, body: text != null ? { text } : {} };
   });
 
@@ -290,7 +292,10 @@ export function registerCommonAutomationRoutes(
         ctx.params.id,
         fingerprint,
       );
-      return { status: 200, body: selector != null ? { selector } : {} };
+      if (selector == null) {
+        return { status: 404, body: { error: "fingerprint not found" } };
+      }
+      return { status: 200, body: { selector } };
     },
   );
 
@@ -342,6 +347,23 @@ export function registerCommonAutomationRoutes(
       timeout?: number;
       state?: WaitForElementState;
     } | null;
+    const state = json?.state ?? "attached";
+
+    // Fingerprint resolution requires the element to already exist in the DOM.
+    // Waiting for "attached" state with a fingerprint is contradictory since
+    // we cannot resolve a fingerprint for an element that doesn't exist yet.
+    if (!json?.selector && json?.fingerprint && state === "attached") {
+      return {
+        status: 400,
+        body: {
+          error:
+            'waitForElement with fingerprint does not support state "attached". ' +
+            "Fingerprints can only be resolved for elements already in the DOM. " +
+            'Use a CSS selector for "attached" state, or use "visible"/"hidden"/"detached" with a fingerprint.',
+        },
+      };
+    }
+
     const service = getService();
     const resolved = await resolveSelectorOrFingerprint(
       service,
@@ -351,7 +373,6 @@ export function registerCommonAutomationRoutes(
     );
     if (!resolved.ok) return resolved.error;
     const to = json?.timeout ?? 5000;
-    const state = json?.state ?? "attached";
     const found = await service.waitForElement(
       ctx.params.id,
       resolved.selector,

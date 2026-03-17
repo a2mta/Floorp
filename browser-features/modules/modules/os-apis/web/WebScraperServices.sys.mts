@@ -368,7 +368,10 @@ class webScraper {
    * @returns Promise<string | null> - The visible text content, or null if unavailable
    * @throws Error - If the browser instance is not found
    */
-  public async getText(instanceId: string): Promise<string | null> {
+  public async getText(
+    instanceId: string,
+    includeSelectorMap: boolean = false,
+  ): Promise<string | null> {
     const browser = this._browserInstances.get(instanceId);
     if (!browser) {
       throw new Error(`Browser not found for instance ${instanceId}`);
@@ -377,7 +380,9 @@ class webScraper {
     try {
       const actor = await this._getActorForBrowser(browser);
       if (!actor) return null;
-      return (await actor.sendQuery("WebScraper:GetText")) as string | null;
+      return (await actor.sendQuery("WebScraper:GetText", {
+        includeSelectorMap,
+      })) as string | null;
     } catch (e) {
       console.error("Error getting text:", e);
       return null;

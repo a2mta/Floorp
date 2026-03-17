@@ -76,7 +76,7 @@ export interface BrowserAutomationService {
 
   // Content retrieval
   getHTML(instanceId: string): Promise<string | null>;
-  getText(instanceId: string): Promise<string | null>;
+  getText(instanceId: string, includeSelectorMap?: boolean): Promise<string | null>;
   getPageTitle(instanceId: string): Promise<string | null>;
 
   // Element queries

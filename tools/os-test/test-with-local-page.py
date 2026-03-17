@@ -5,12 +5,14 @@ Floorp Enhanced Effects テスト（ローカルHTMLページ使用）
 
 import requests
 import json
+import sys
 import time
 import os
 from pathlib import Path
 from typing import Optional
 
 BASE_URL = "http://127.0.0.1:58261"
+REQUEST_TIMEOUT = (5, 30)
 
 # ANSI color codes
 GREEN = '\033[0;32m'
@@ -26,12 +28,25 @@ class FloorpTabManager:
     def __init__(self, base_url: str = BASE_URL):
         self.base_url = base_url
         self.instance_id: Optional[str] = None
+        self.timeout = REQUEST_TIMEOUT
+
+    def _get(self, path: str, **kwargs):
+        kwargs.setdefault("timeout", self.timeout)
+        return requests.get(f"{self.base_url}{path}", **kwargs)
+
+    def _post(self, path: str, **kwargs):
+        kwargs.setdefault("timeout", self.timeout)
+        return requests.post(f"{self.base_url}{path}", **kwargs)
+
+    def _delete(self, path: str, **kwargs):
+        kwargs.setdefault("timeout", self.timeout)
+        return requests.delete(f"{self.base_url}{path}", **kwargs)
     
     def create_instance(self, url: str, in_background: bool = False):
         """新しいタブインスタンスを作成"""
-        resp = requests.post(
-            f"{self.base_url}/tabs/instances",
-            json={"url": url, "inBackground": in_background}
+        resp = self._post(
+            "/tabs/instances",
+            json={"url": url, "inBackground": in_background},
         )
         resp.raise_for_status()
         data = resp.json()
@@ -53,8 +68,8 @@ class FloorpTabManager:
         if fingerprint:
             json_data["fingerprint"] = fingerprint
 
-        resp = requests.post(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/click",
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/click",
             json=json_data
         )
         resp.raise_for_status()
@@ -66,8 +81,8 @@ class FloorpTabManager:
         """フィンガープリントからCSSセレクタを解決"""
         if not self.instance_id:
             raise ValueError("No instance created")
-        resp = requests.get(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/resolveFingerprint",
+        resp = self._get(
+            f"/tabs/instances/{self.instance_id}/resolveFingerprint",
             params={"fingerprint": fingerprint}
         )
         resp.raise_for_status()
@@ -79,8 +94,8 @@ class FloorpTabManager:
         """フォームを一括入力（エフェクト付き）"""
         if not self.instance_id:
             raise ValueError("No instance created")
-        resp = requests.post(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/fillForm",
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/fillForm",
             json={"formData": form_data}
         )
         resp.raise_for_status()
@@ -92,8 +107,8 @@ class FloorpTabManager:
         """フォームを送信（エフェクト付き）"""
         if not self.instance_id:
             raise ValueError("No instance created")
-        resp = requests.post(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/submit",
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/submit",
             json={"selector": selector}
         )
         resp.raise_for_status()
@@ -105,8 +120,8 @@ class FloorpTabManager:
         """インスタンスを削除"""
         if not self.instance_id:
             return
-        resp = requests.delete(
-            f"{self.base_url}/tabs/instances/{self.instance_id}"
+        resp = self._delete(
+            f"/tabs/instances/{self.instance_id}"
         )
         resp.raise_for_status()
         result = resp.json()
@@ -117,20 +132,8 @@ class FloorpTabManager:
     def get_html(self):
         if not self.instance_id:
             raise ValueError("No instance created")
-        resp = requests.get(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/html"
-        )
-        resp.raise_for_status()
-        result = resp.json()
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-        return result
-
-    def get_element(self, selector: str):
-        if not self.instance_id:
-            raise ValueError("No instance created")
-        resp = requests.get(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/element",
-            params={"selector": selector},
+        resp = self._get(
+            f"/tabs/instances/{self.instance_id}/html"
         )
         resp.raise_for_status()
         result = resp.json()
@@ -140,8 +143,8 @@ class FloorpTabManager:
     def get_elements(self, selector: str):
         if not self.instance_id:
             raise ValueError("No instance created")
-        resp = requests.get(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/elements",
+        resp = self._get(
+            f"/tabs/instances/{self.instance_id}/elements",
             params={"selector": selector},
         )
         resp.raise_for_status()
@@ -158,9 +161,29 @@ class FloorpTabManager:
             params["selector"] = selector
         if fingerprint:
             params["fingerprint"] = fingerprint
-        resp = requests.get(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/value",
+        resp = self._get(
+            f"/tabs/instances/{self.instance_id}/value",
             params=params,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def wait_for_element(self, selector: str = None, fingerprint: str = None, timeout: int = 3000, state: str = None):
+        """Wait for element - supports selector OR fingerprint"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        json_data = {"timeout": timeout}
+        if selector:
+            json_data["selector"] = selector
+        if fingerprint:
+            json_data["fingerprint"] = fingerprint
+        if state:
+            json_data["state"] = state
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/waitForElement",
+            json=json_data,
         )
         resp.raise_for_status()
         result = resp.json()
@@ -176,8 +199,8 @@ class FloorpTabManager:
             json_data["selector"] = selector
         if fingerprint:
             json_data["fingerprint"] = fingerprint
-        resp = requests.post(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/hover",
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/hover",
             json=json_data
         )
         resp.raise_for_status()
@@ -194,8 +217,8 @@ class FloorpTabManager:
             json_data["selector"] = selector
         if fingerprint:
             json_data["fingerprint"] = fingerprint
-        resp = requests.post(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/scrollTo",
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/scrollTo",
             json=json_data
         )
         resp.raise_for_status()
@@ -212,8 +235,8 @@ class FloorpTabManager:
             params["selector"] = selector
         if fingerprint:
             params["fingerprint"] = fingerprint
-        resp = requests.get(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/element",
+        resp = self._get(
+            f"/tabs/instances/{self.instance_id}/element",
             params=params,
         )
         resp.raise_for_status()
@@ -226,8 +249,8 @@ class FloorpTabManager:
         if not self.instance_id:
             raise ValueError("No instance created")
         params = {"includeSelectorMap": "true"} if include_selector_map else {}
-        resp = requests.get(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/text",
+        resp = self._get(
+            f"/tabs/instances/{self.instance_id}/text",
             params=params,
         )
         resp.raise_for_status()
@@ -241,7 +264,7 @@ class FloorpTabManager:
 
         # Count fingerprints
         import re
-        fingerprints = re.findall(r'<!--fp:([a-z0-9]{8})-->', text)
+        fingerprints = re.findall(r'<!--fp:([a-z0-9]{8}(?:[a-z0-9]{8})?)-->', text)
         print(f"{GREEN}✓ Found {len(fingerprints)} element fingerprints{NC}")
         return result
 
@@ -251,15 +274,15 @@ class FloorpTabManager:
             raise ValueError("No instance created")
 
         # Get HTML
-        resp_html = requests.get(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/html"
+        resp_html = self._get(
+            f"/tabs/instances/{self.instance_id}/html"
         )
         resp_html.raise_for_status()
         html_size = len(resp_html.json().get("html", ""))
 
         # Get Text (Markdown)
-        resp_text = requests.get(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/text"
+        resp_text = self._get(
+            f"/tabs/instances/{self.instance_id}/text"
         )
         resp_text.raise_for_status()
         text_size = len(resp_text.json().get("text", ""))
@@ -275,8 +298,8 @@ class FloorpTabManager:
         """Clear all highlight effects and overlays"""
         if not self.instance_id:
             raise ValueError("No instance created")
-        resp = requests.post(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/clearEffects"
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/clearEffects"
         )
         resp.raise_for_status()
         result = resp.json()
@@ -288,15 +311,24 @@ class FloorpTabManager:
         if not self.instance_id:
             raise ValueError("No instance created")
         params = {"includeSelectorMap": "true"} if include_selector_map else {}
-        resp = requests.get(
-            f"{self.base_url}/tabs/instances/{self.instance_id}/text",
+        resp = self._get(
+            f"/tabs/instances/{self.instance_id}/text",
             params=params,
         )
         resp.raise_for_status()
         return resp.json()
 
 
-def main():
+def main() -> int:
+    exit_code = 0
+    failure_count = 0
+
+    def record_failure(message: str) -> None:
+        nonlocal exit_code, failure_count
+        exit_code = 1
+        failure_count += 1
+        print(f"{RED}    ✗ {message}{NC}")
+
     print("=" * 42)
     print("🎨 Floorp Enhanced Effects デモ")
     print("=" * 42)
@@ -305,7 +337,7 @@ def main():
     # テストページのパスを取得
     script_dir = Path(__file__).parent
     test_page_path = script_dir / "test-page.html"
-    test_page_url = f"file://{test_page_path.absolute()}"
+    test_page_url = test_page_path.resolve().as_uri()
 
     print(f"📄 Test Page: {test_page_url}")
     print()
@@ -401,7 +433,7 @@ def main():
 
         # Extract fingerprints from the markdown
         import re
-        fingerprints = re.findall(r'<!--fp:([a-z0-9]{8})-->', text_content)
+        fingerprints = re.findall(r'<!--fp:([a-z0-9]{8}(?:[a-z0-9]{8})?)-->', text_content)
         print(f"{GREEN}  ✓ Found {len(fingerprints)} fingerprints{NC}")
 
         if fingerprints:
@@ -413,8 +445,8 @@ def main():
                 if i < 3:
                     continue
                 try:
-                    resp = requests.get(
-                        f"{BASE_URL}/tabs/instances/{manager.instance_id}/resolveFingerprint",
+                    resp = manager._get(
+                        f"/tabs/instances/{manager.instance_id}/resolveFingerprint",
                         params={"fingerprint": fp},
                     )
                     if resp.status_code == 200:
@@ -425,7 +457,7 @@ def main():
                             print(f"{GREEN}  ✓ Found box element: {fp} → {selector}{NC}")
                         elif ("h1" in selector or "h2" in selector) and not heading_fingerprint:
                             heading_fingerprint = fp
-                except:
+                except Exception:
                     pass
 
             # Test with box element if found
@@ -435,29 +467,29 @@ def main():
                     click_result = manager.click_element(fingerprint=box_fingerprint)
                     print(f"{GREEN}    ✓ Click via fingerprint successful{NC}")
                 except Exception as e:
-                    print(f"{RED}    ✗ Click failed: {e}{NC}")
+                    record_failure(f"Click via fingerprint failed: {e}")
 
                 print(f"{BLUE}  └ Test: Hover element via fingerprint{NC}")
                 try:
                     hover_result = manager.hover_element(fingerprint=box_fingerprint)
                     print(f"{GREEN}    ✓ Hover via fingerprint successful{NC}")
                 except Exception as e:
-                    print(f"{RED}    ✗ Hover failed: {e}{NC}")
+                    record_failure(f"Hover via fingerprint failed: {e}")
 
                 print(f"{BLUE}  └ Test: Get element via fingerprint{NC}")
                 try:
                     elem_result = manager.get_element(fingerprint=box_fingerprint)
                     print(f"{GREEN}    ✓ Get element via fingerprint successful{NC}")
                 except Exception as e:
-                    print(f"{RED}    ✗ Get element failed: {e}{NC}")
+                    record_failure(f"Get element via fingerprint failed: {e}")
 
             # Test getValue with fingerprint (name field)
             # First, find the name field fingerprint by looking at the page content
             print(f"{BLUE}  └ Test: GetValue via fingerprint (finding input field){NC}")
             for fp in fingerprints[10:20]:  # Check middle fingerprints
                 try:
-                    resp = requests.get(
-                        f"{BASE_URL}/tabs/instances/{manager.instance_id}/resolveFingerprint",
+                    resp = manager._get(
+                        f"/tabs/instances/{manager.instance_id}/resolveFingerprint",
                         params={"fingerprint": fp},
                     )
                     if resp.status_code == 200:
@@ -468,63 +500,134 @@ def main():
                                 val_result = manager.get_value(fingerprint=fp)
                                 print(f"{GREEN}    ✓ GetValue via fingerprint successful{NC}")
                             except Exception as e:
-                                print(f"{RED}    ✗ GetValue failed: {e}{NC}")
+                                record_failure(f"GetValue via fingerprint failed: {e}")
                             break
-                except:
+                except Exception:
                     pass
 
         else:
             print(f"{YELLOW}  ⚠ No fingerprints found in text output{NC}")
         print()
 
-        # Step 8: Negative test cases for fingerprint validation
-        print(f"{BLUE}📋 Step 8: Fingerprint validation tests{NC}")
+        # Step 8: Wait contract and selector/fingerprint priority checks
+        print(f"{BLUE}📋 Step 8: Wait contract and fallback checks{NC}")
 
-        # Test 8a: Invalid fingerprint format
+        print(f"{BLUE}  └ waitForElement with selector (#title){NC}")
+        try:
+            wait_result = manager.wait_for_element(selector="#title", timeout=2500)
+            if wait_result.get("ok") is True and wait_result.get("found") is True:
+                print(f"{GREEN}    ✓ waitForElement selector contract ok=true,found=true{NC}")
+            else:
+                record_failure(f"Unexpected wait result: {wait_result}")
+        except Exception as e:
+            record_failure(f"waitForElement selector failed: {e}")
+
+        if fingerprints:
+            fp_any = fingerprints[0]
+            print(f"{BLUE}  └ waitForElement with fingerprint ({fp_any}){NC}")
+            try:
+                wait_fp_result = manager.wait_for_element(fingerprint=fp_any, timeout=2500, state="visible")
+                if (
+                    wait_fp_result.get("ok") is True
+                    and wait_fp_result.get("found") is True
+                ):
+                    print(f"{GREEN}    ✓ waitForElement fingerprint contract ok=true,found=true{NC}")
+                else:
+                    record_failure(f"Unexpected wait fingerprint result: {wait_fp_result}")
+            except Exception as e:
+                record_failure(f"waitForElement fingerprint failed: {e}")
+
+            print(f"{BLUE}  └ selector priority over invalid fingerprint{NC}")
+            try:
+                resp = manager._post(
+                    f"/tabs/instances/{manager.instance_id}/click",
+                    json={"selector": "#submitBtn", "fingerprint": "bad!"},
+                )
+                if resp.status_code == 200:
+                    print(f"{GREEN}    ✓ selector takes priority over invalid fingerprint{NC}")
+                else:
+                    record_failure(f"Expected 200, got {resp.status_code}: {resp.text}")
+            except Exception as e:
+                record_failure(f"selector priority test failed: {e}")
+
+        print()
+
+        # Step 9: Negative test cases for fingerprint validation
+        print(f"{BLUE}📋 Step 9: Fingerprint validation tests{NC}")
+
+        # Test 9a: Invalid fingerprint format
         print(f"{BLUE}  └ Test invalid fingerprint format{NC}")
         try:
-            resp = requests.get(
-                f"{BASE_URL}/tabs/instances/{manager.instance_id}/resolveFingerprint",
+            resp = manager._get(
+                f"/tabs/instances/{manager.instance_id}/resolveFingerprint",
                 params={"fingerprint": "invalid!"},
             )
             if resp.status_code == 400:
                 print(f"{GREEN}    ✓ Invalid fingerprint correctly rejected with 400{NC}")
             else:
-                print(f"{YELLOW}    ⚠ Expected 400, got {resp.status_code}{NC}")
+                record_failure(f"Invalid fingerprint expected 400, got {resp.status_code}")
         except Exception as e:
-            print(f"{RED}    ✗ Error: {e}{NC}")
+            record_failure(f"Invalid fingerprint test error: {e}")
 
-        # Test 8b: Non-existent fingerprint
+        # Test 9b: Non-existent fingerprint -> 404
         print(f"{BLUE}  └ Test non-existent fingerprint{NC}")
         try:
-            resp = requests.get(
-                f"{BASE_URL}/tabs/instances/{manager.instance_id}/resolveFingerprint",
+            resp = manager._get(
+                f"/tabs/instances/{manager.instance_id}/resolveFingerprint",
                 params={"fingerprint": "zzzzzzzz"},
             )
-            resp.raise_for_status()
-            result = resp.json()
-            if result.get("selector") is None:
-                print(f"{GREEN}    ✓ Non-existent fingerprint correctly returns null{NC}")
+            if resp.status_code == 404:
+                print(f"{GREEN}    ✓ Non-existent fingerprint correctly returns 404{NC}")
             else:
-                print(f"{YELLOW}    ⚠ Expected null selector, got: {result.get('selector')}{NC}")
+                record_failure(f"Non-existent fingerprint expected 404, got {resp.status_code}")
         except Exception as e:
-            print(f"{RED}    ✗ Error: {e}{NC}")
+            record_failure(f"Non-existent fingerprint test error: {e}")
 
-        # Test 8c: Click with invalid fingerprint
+        # Test 9c: Click with invalid fingerprint
         print(f"{BLUE}  └ Test click with invalid fingerprint{NC}")
         try:
-            resp = requests.post(
-                f"{BASE_URL}/tabs/instances/{manager.instance_id}/click",
+            resp = manager._post(
+                f"/tabs/instances/{manager.instance_id}/click",
                 json={"fingerprint": "badformat"},
             )
             if resp.status_code == 400:
                 print(f"{GREEN}    ✓ Click with invalid fingerprint correctly rejected with 400{NC}")
             else:
-                print(f"{YELLOW}    ⚠ Expected 400, got {resp.status_code}{NC}")
+                record_failure(f"Click invalid fingerprint expected 400, got {resp.status_code}")
         except Exception as e:
-            print(f"{RED}    ✗ Error: {e}{NC}")
+            record_failure(f"Click invalid fingerprint test error: {e}")
+
+        # Test 9d: Missing selector/fingerprint in click payload
+        print(f"{BLUE}  └ Test click with missing selector and fingerprint{NC}")
+        try:
+            resp = manager._post(
+                f"/tabs/instances/{manager.instance_id}/click",
+                json={},
+            )
+            if resp.status_code == 400:
+                print(f"{GREEN}    ✓ Missing selector/fingerprint correctly rejected with 400{NC}")
+            else:
+                record_failure(f"Click missing selector/fingerprint expected 400, got {resp.status_code}")
+        except Exception as e:
+            record_failure(f"Click missing selector/fingerprint test error: {e}")
+
+        # Test 9e: waitForElement missing selector/fingerprint
+        print(f"{BLUE}  └ Test waitForElement with missing selector and fingerprint{NC}")
+        try:
+            resp = manager._post(
+                f"/tabs/instances/{manager.instance_id}/waitForElement",
+                json={"timeout": 100},
+            )
+            if resp.status_code == 400:
+                print(f"{GREEN}    ✓ waitForElement missing selector/fingerprint rejected with 400{NC}")
+            else:
+                record_failure(f"waitForElement missing selector/fingerprint expected 400, got {resp.status_code}")
+        except Exception as e:
+            record_failure(f"waitForElement missing selector/fingerprint test error: {e}")
 
         print(f"{GREEN}✓ Fingerprint validation tests completed{NC}")
+        if failure_count > 0:
+            print(f"{RED}❌ Detected {failure_count} assertion failure(s) during test steps{NC}")
         print()
         
         # クリーンアップ
@@ -552,15 +655,17 @@ def main():
         print()
         
     except requests.exceptions.RequestException as e:
+        exit_code = 1
         print(f"{RED}❌ HTTP Error: {e}{NC}")
         if hasattr(e, 'response') and e.response is not None:
             try:
                 print(json.dumps(e.response.json(), indent=2, ensure_ascii=False))
-            except:
+            except Exception:
                 print(e.response.text)
         import traceback
         traceback.print_exc()
     except Exception as e:
+        exit_code = 1
         print(f"{RED}❌ Error: {e}{NC}")
         import traceback
         traceback.print_exc()
@@ -570,10 +675,12 @@ def main():
             print(f"{BLUE}🧹 Cleanup: Destroying instance...{NC}")
             try:
                 manager.destroy_instance()
-            except:
+            except Exception:
                 pass
+
+    return exit_code
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
 

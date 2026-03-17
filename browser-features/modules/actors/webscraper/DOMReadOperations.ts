@@ -21,12 +21,6 @@ export class DOMReadOperations {
     return this.deps.getDocument();
   }
 
-  private markdownConverter = new TurndownService({
-    headingStyle: "atx",
-    codeBlockStyle: "fenced",
-    bulletListMarker: "-",
-  });
-
   getHTML(): string | null {
     try {
       const win = this.contentWindow;
@@ -309,7 +303,7 @@ export class DOMReadOperations {
    * `<!--fp:abc12345-->`
    *
    * If includeSelectorMap is true, a selector map is appended at the end:
-   * `[abc12345def67890]: p "Preview text"`
+   * `fp:abc12345def67890 | p | "Preview text"`
    *
    * @param includeSelectorMap If true, appends a fingerprint-to-element mapping at the end
    * @returns Markdown with embedded fingerprints, or null on error
