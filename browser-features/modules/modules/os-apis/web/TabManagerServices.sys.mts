@@ -227,7 +227,7 @@ class TabManager {
         // Clean up GlobalHTTPTracker for this tab's browsing context
         const bcid = entry.browser.browsingContext?.id;
         if (bcid !== undefined && bcid !== null) {
-          GlobalHTTPTracker.activeRequests.delete(bcid);
+          GlobalHTTPTracker.clearForContext(bcid);
         }
         this._browserInstances.delete(instanceId);
         TAB_MANAGER_ACTOR_SETS.delete(entry.browser);

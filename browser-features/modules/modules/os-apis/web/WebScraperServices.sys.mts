@@ -133,7 +133,7 @@ class webScraper {
       // Clean up GlobalHTTPTracker for this instance's browsing context
       const bcid = browser.browsingContext?.id;
       if (bcid !== undefined && bcid !== null) {
-        GlobalHTTPTracker.activeRequests.delete(bcid);
+        GlobalHTTPTracker.clearForContext(bcid);
       }
       browser.remove();
       this._browserInstances.delete(instanceId);
