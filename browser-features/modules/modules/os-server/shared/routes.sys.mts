@@ -313,7 +313,7 @@ export function registerCommonAutomationRoutes(
   );
 
   // Click element (selector or fingerprint)
-  ns.post<{ fingerprint: string }, { ok: boolean } | ErrorResponse>(
+  ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
     "/instances/:id/click",
     async (ctx: RouterContext) => {
       const json = ctx.json() as {
@@ -498,7 +498,7 @@ export function registerCommonAutomationRoutes(
   );
 
   // Submit form (selector or fingerprint)
-  ns.post<{ fingerprint: string }, { ok: boolean } | ErrorResponse>(
+  ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
     "/instances/:id/submit",
     async (ctx: RouterContext) => {
       const json = ctx.json() as {
@@ -519,7 +519,7 @@ export function registerCommonAutomationRoutes(
   );
 
   // Clear input field (selector or fingerprint)
-  ns.post<{ fingerprint: string }, { ok: boolean } | ErrorResponse>(
+  ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
     "/instances/:id/clearInput",
     async (ctx: RouterContext) => {
       const json = ctx.json() as {
@@ -659,7 +659,7 @@ export function registerCommonAutomationRoutes(
   });
 
   // Hover over element (selector or fingerprint)
-  ns.post<{ fingerprint: string }, { ok: boolean } | ErrorResponse>(
+  ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
     "/instances/:id/hover",
     async (ctx: RouterContext) => {
       const json = ctx.json() as {
@@ -680,7 +680,7 @@ export function registerCommonAutomationRoutes(
   );
 
   // Scroll to element (selector or fingerprint)
-  ns.post<{ fingerprint: string }, { ok: boolean } | ErrorResponse>(
+  ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
     "/instances/:id/scrollTo",
     async (ctx: RouterContext) => {
       const json = ctx.json() as {

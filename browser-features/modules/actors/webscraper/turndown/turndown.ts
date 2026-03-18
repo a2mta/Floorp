@@ -16,11 +16,7 @@
 import COMMONMARK_RULES from "./commonmark-rules";
 import Rules, { type TurndownOptions, type Rule } from "./rules";
 import type { ExtendedNode } from "./node";
-import {
-  extend,
-  trimLeadingNewlines,
-  trimTrailingNewlines,
-} from "./utilities";
+import { extend, trimLeadingNewlines, trimTrailingNewlines } from "./utilities";
 import RootNode from "./root-node";
 import wrapNode from "./node";
 import {
@@ -149,7 +145,8 @@ export class TurndownService {
       this.collectedFingerprints.length > 0
     ) {
       result += "\n\n---\n\n#### Element Selector Map\n\n";
-      result += "<!-- Fingerprint -> Element mappings for programmatic access -->\n";
+      result +=
+        "<!-- Fingerprint -> Element mappings for programmatic access -->\n";
       for (const entry of this.collectedFingerprints) {
         result +=
           formatSelectorMapEntry(
@@ -168,7 +165,11 @@ export class TurndownService {
    * @param plugin The plugin or array of plugins to add
    * @returns The Turndown instance for chaining
    */
-  use(plugin: ((service: TurndownService) => void) | ((service: TurndownService) => void)[]): TurndownService {
+  use(
+    plugin:
+      | ((service: TurndownService) => void)
+      | ((service: TurndownService) => void)[],
+  ): TurndownService {
     if (Array.isArray(plugin)) {
       for (let i = 0; i < plugin.length; i++) {
         this.use(plugin[i]);
@@ -237,11 +238,13 @@ function process(parentNode: ParentNode): string {
     const wrappedNode = wrapNode(node, self.options);
 
     let replacement = "";
-    if (wrappedNode.nodeType === 3) { // Node.TEXT_NODE
+    if (wrappedNode.nodeType === 3) {
+      // Node.TEXT_NODE
       replacement = wrappedNode.isCode
         ? wrappedNode.nodeValue || ""
         : self.escape(wrappedNode.nodeValue || "");
-    } else if (wrappedNode.nodeType === 1) { // Node.ELEMENT_NODE
+    } else if (wrappedNode.nodeType === 1) {
+      // Node.ELEMENT_NODE
       replacement = replacementForNode.call(self, wrappedNode);
     }
 
@@ -260,9 +263,7 @@ function postProcess(output: string): string {
     }
   });
 
-  return output
-    .replace(/^[\t\r\n]+/, "")
-    .replace(/[\t\r\n\s]+$/, "");
+  return output.replace(/^[\t\r\n]+/, "").replace(/[\t\r\n\s]+$/, "");
 }
 
 /**
@@ -288,12 +289,13 @@ function replacementForNode(node: ExtendedNode): string {
     // Matches: optional leading whitespace, then "- ", "* ", "+ ", or "1. ", "2. ", etc.
     const listMarkerMatch = replacement.match(/^(\s*)([-*+]|\d+\.)(\s+)/);
     if (listMarkerMatch) {
-      // Insert fingerprint after the list marker
+      // Insert fingerprint after the list marker and its space
+      // e.g., "- item" -> "- <!--fp:...-->item"
       replacement =
         listMarkerMatch[1] +
         listMarkerMatch[2] +
-        fpComment +
         listMarkerMatch[3] +
+        fpComment +
         replacement.slice(listMarkerMatch[0].length);
     } else {
       // For other block elements, prepend fingerprint
@@ -337,6 +339,8 @@ function canConvert(input: unknown): boolean {
     (typeof input === "string" ||
       (typeof input === "object" &&
         "nodeType" in input &&
-        (input.nodeType === 1 || input.nodeType === 9 || input.nodeType === 11)))
+        (input.nodeType === 1 ||
+          input.nodeType === 9 ||
+          input.nodeType === 11)))
   );
 }
