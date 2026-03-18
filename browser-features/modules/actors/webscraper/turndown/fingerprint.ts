@@ -200,12 +200,10 @@ export function generateFingerprint(
   components.push(element.nodeName.toLowerCase());
 
   // 2. Text content (first N characters, normalized)
-  // Use element.textContent directly and normalize ALL whitespace away.
-  // Turndown's collapseWhitespace() removes inter-element whitespace nodes
-  // from the cloned DOM, producing "FooBar" instead of "Foo Bar".
-  // To ensure consistent hashes between the clone (getText) and live DOM
-  // (resolveFingerprint), we strip all whitespace before comparison.
-  const textContent = (element.textContent || "")
+  // Use getFilteredTextContent to exclude script/style/noscript text,
+  // matching the cloned DOM (where those elements are physically removed).
+  // Then strip ALL whitespace for consistent hashes between clone and live DOM.
+  const textContent = getFilteredTextContent(element)
     .replace(/\s+/g, "")
     .slice(0, opts.textContentLength);
   if (textContent) {
@@ -296,16 +294,16 @@ export function formatSelectorMapEntry(
   tagName: string,
   textPreview: string,
 ): string {
-  // Escape special characters in preview text to preserve the pipe-delimited format.
-  // Order matters: escape backslashes first to avoid double-escaping.
+  // Truncate first to avoid splitting escape sequences at the boundary.
+  // Then escape special characters to preserve the pipe-delimited format.
   const preview = textPreview
     .trim()
-    .replace(/\\/g, "\\\\")
     .replace(/\r/g, "")
     .replace(/\n/g, " ")
+    .slice(0, 50)
+    .replace(/\\/g, "\\\\")
     .replace(/\|/g, "\\|")
-    .replace(/"/g, '\\"')
-    .slice(0, 50);
+    .replace(/"/g, '\\"');
   return `fp:${fingerprint.full} | ${tagName} | "${preview}"`;
 }
 
@@ -400,6 +398,12 @@ export function findElementByFingerprint(
   timeout: number = 5000,
 ): Element | null {
   const opts = { ...DEFAULT_OPTIONS, ...options };
+
+  // Validate fingerprint format before traversing the entire DOM
+  if (!/^[a-z0-9]{8}([a-z0-9]{8})?$/.test(fingerprint)) {
+    return null;
+  }
+
   const isShortFingerprint = fingerprint.length === 8;
   const startTime = Date.now();
 
@@ -469,6 +473,12 @@ export function findElementsByFingerprint(
   timeout: number = 5000,
 ): Element[] {
   const opts = { ...DEFAULT_OPTIONS, ...options };
+
+  // Validate fingerprint format before traversing the entire DOM
+  if (!/^[a-z0-9]{8}([a-z0-9]{8})?$/.test(fingerprint)) {
+    return [];
+  }
+
   const isShortFingerprint = fingerprint.length === 8;
   const matches: Element[] = [];
   const startTime = Date.now();

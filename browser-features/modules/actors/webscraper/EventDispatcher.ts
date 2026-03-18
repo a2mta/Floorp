@@ -219,7 +219,7 @@ export class EventDispatcher {
         new EventCtor("change", this.cloneIntoPageContext({ bubbles: true })),
       );
       rawElement.dispatchEvent(
-        new FocusEv("blur", this.cloneIntoPageContext({ bubbles: true })),
+        new FocusEv("blur", this.cloneIntoPageContext({ bubbles: false })),
       );
     } catch {
       // ignore event errors

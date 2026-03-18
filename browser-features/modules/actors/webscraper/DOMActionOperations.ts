@@ -25,7 +25,7 @@ export class DOMActionOperations {
       const element = this.document?.querySelector(
         selector,
       ) as HTMLElement | null;
-      if (!element) return Promise.resolve(false);
+      if (!element) return false;
 
       const elementTagName = element.tagName?.toLowerCase() || "element";
       const elementTextRaw = element.textContent?.trim() || "";
@@ -126,11 +126,15 @@ export class DOMActionOperations {
           0,
         );
 
-      try {
-        rawElement.click();
-        clickDispatched = true;
-      } catch {
-        // ignore
+      // Skip rawElement.click() for checkbox/radio — the state was already
+      // toggled above and a second click would revert it.
+      if (!stateChanged) {
+        try {
+          rawElement.click();
+          clickDispatched = true;
+        } catch {
+          // ignore
+        }
       }
 
       if (!clickDispatched && MouseEv) {
@@ -164,7 +168,7 @@ export class DOMActionOperations {
       return stateChanged || clickDispatched;
     } catch (e) {
       console.error("DOMActionOperations: Error clicking element:", e);
-      return Promise.resolve(false);
+      return false;
     }
   }
 
@@ -467,6 +471,34 @@ export class DOMActionOperations {
 
       const KeyboardEv = rawWin.KeyboardEvent ?? globalThis.KeyboardEvent;
 
+      // Map logical key names to physical key codes
+      const keyToCode = (k: string): string => {
+        if (k.length === 1) {
+          const upper = k.toUpperCase();
+          if (upper >= "A" && upper <= "Z") return `Key${upper}`;
+          if (k >= "0" && k <= "9") return `Digit${k}`;
+          const special: Record<string, string> = {
+            " ": "Space", ",": "Comma", ".": "Period", "/": "Slash",
+            ";": "Semicolon", "'": "Quote", "[": "BracketLeft",
+            "]": "BracketRight", "\\": "Backslash", "-": "Minus",
+            "=": "Equal", "`": "Backquote",
+          };
+          return special[k] ?? k;
+        }
+        const multi: Record<string, string> = {
+          Control: "ControlLeft", Shift: "ShiftLeft",
+          Alt: "AltLeft", Meta: "MetaLeft",
+        };
+        return multi[k] ?? k;
+      };
+
+      // Compute modifier flags from the modifier key names
+      const ctrlKey = modifiers.some((m) => m === "Control");
+      const shiftKey = modifiers.some((m) => m === "Shift");
+      const altKey = modifiers.some((m) => m === "Alt");
+      const metaKey = modifiers.some((m) => m === "Meta");
+      const modifierFlags = { ctrlKey, shiftKey, altKey, metaKey };
+
       const dispatch = (type: string, opts: KeyboardEventInit) => {
         try {
           return (
@@ -485,15 +517,15 @@ export class DOMActionOperations {
       };
 
       for (const mod of modifiers) {
-        dispatch("keydown", { key: mod, code: mod, bubbles: true });
+        dispatch("keydown", { key: mod, code: keyToCode(mod), bubbles: true, ...modifierFlags });
       }
 
-      dispatch("keydown", { key, code: key, bubbles: true });
-      dispatch("keypress", { key, code: key, bubbles: true });
-      dispatch("keyup", { key, code: key, bubbles: true });
+      dispatch("keydown", { key, code: keyToCode(key), bubbles: true, ...modifierFlags });
+      dispatch("keypress", { key, code: keyToCode(key), bubbles: true, ...modifierFlags });
+      dispatch("keyup", { key, code: keyToCode(key), bubbles: true, ...modifierFlags });
 
-      for (const mod of modifiers.reverse()) {
-        dispatch("keyup", { key: mod, code: mod, bubbles: true });
+      for (const mod of [...modifiers].reverse()) {
+        dispatch("keyup", { key: mod, code: keyToCode(mod), bubbles: true, ...modifierFlags });
       }
 
       await Promise.resolve();

@@ -30,6 +30,33 @@ import type {
 } from "./types.ts";
 
 const FINGERPRINT_REGEX = /^[a-z0-9]{8}([a-z0-9]{8})?$/;
+const MAX_TIMEOUT_MS = 60_000;
+const ALLOWED_URL_SCHEMES = new Set(["http:", "https:"]);
+const ALLOWED_EXACT_URLS = new Set(["about:blank"]);
+
+/**
+ * Clamp a timeout value to a safe range [0, MAX_TIMEOUT_MS].
+ */
+function clampTimeout(value: number | undefined, fallback: number): number {
+  const v = typeof value === "number" ? value : fallback;
+  return Math.min(Math.max(v, 0), MAX_TIMEOUT_MS);
+}
+
+/**
+ * Wraps a route handler with try/catch to prevent service exceptions
+ * from propagating as unhandled rejections.
+ */
+function safeRoute<F extends (...args: never[]) => Promise<unknown>>(handler: F): F {
+  return (async (...args: unknown[]) => {
+    try {
+      return await handler(...(args as Parameters<F>));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("Route handler error:", msg);
+      return { status: 500, body: { error: "Internal server error" } };
+    }
+  }) as unknown as F;
+}
 
 type FingerprintResult =
   | { ok: true; selector: string }
@@ -129,48 +156,61 @@ export function registerCommonAutomationRoutes(
     includeGetElement?: boolean;
   } = {},
 ): void {
-  // Navigate to a URL
+  // Navigate to a URL (only http/https allowed)
   ns.post<{ url: string }, OkResponse | ErrorResponse>(
     "/instances/:id/navigate",
-    async (ctx: RouterContext<{ url: string }>) => {
+    safeRoute(async (ctx: RouterContext<{ url: string }>) => {
       const json = ctx.json();
       if (!json?.url) {
         return { status: 400, body: { error: "url required" } };
       }
+      if (!ALLOWED_EXACT_URLS.has(json.url)) {
+        try {
+          const parsed = new URL(json.url);
+          if (!ALLOWED_URL_SCHEMES.has(parsed.protocol)) {
+            return {
+              status: 400,
+              body: { error: `URL scheme '${parsed.protocol}' not allowed. Only http/https are permitted.` },
+            };
+          }
+        } catch {
+          return { status: 400, body: { error: "Invalid URL" } };
+        }
+      }
       const service = getService();
       await service.navigate(ctx.params.id, json.url);
       return { status: 200, body: { ok: true } };
-    },
+    }),
   );
 
   // Get current URI
-  ns.get("/instances/:id/uri", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/uri", safeRoute(async (ctx: RouterContext) => {
     const service = getService();
     const uri = await service.getURI(ctx.params.id);
     return { status: 200, body: uri != null ? { uri } : { uri: null } };
-  });
+  }));
 
   // Get page HTML
-  ns.get("/instances/:id/html", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/html", safeRoute(async (ctx: RouterContext) => {
     const service = getService();
     const html = await service.getHTML(ctx.params.id);
     return { status: 200, body: { html } };
-  });
+  }));
 
   // Get visible text content (as Markdown with element fingerprints)
-  ns.get("/instances/:id/text", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/text", safeRoute(async (ctx: RouterContext) => {
     const includeSelectorMap =
       ctx.searchParams.get("includeSelectorMap") === "true";
     const service = getService();
     const text = await service.getText(ctx.params.id, includeSelectorMap);
     return { status: 200, body: text != null ? { text } : {} };
-  });
+  }));
 
   // Get element by selector or fingerprint (optional - only Tab exposes this)
   if (options.includeGetElement) {
     ns.get<unknown, ElementResponse>(
       "/instances/:id/element",
-      async (ctx: RouterContext) => {
+      safeRoute(async (ctx: RouterContext) => {
         const selector = ctx.searchParams.get("selector");
         const fingerprint = ctx.searchParams.get("fingerprint");
         const service = getService();
@@ -189,14 +229,14 @@ export function registerCommonAutomationRoutes(
           resolved.selector,
         );
         return { status: 200, body: element != null ? { element } : {} };
-      },
+      }),
     );
   }
 
   // Get element text by selector or fingerprint
   ns.get<unknown, TextResponse>(
     "/instances/:id/elementText",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const selector = ctx.searchParams.get("selector");
       const fingerprint = ctx.searchParams.get("fingerprint");
       const service = getService();
@@ -212,13 +252,13 @@ export function registerCommonAutomationRoutes(
         resolved.selector,
       );
       return { status: 200, body: text != null ? { text } : {} };
-    },
+    }),
   );
 
   // Get all matching elements (outerHTML array) by selector or fingerprint
   ns.get<unknown, { elements?: string[]; error?: string }>(
     "/instances/:id/elements",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const selector = ctx.searchParams.get("selector");
       const fingerprint = ctx.searchParams.get("fingerprint");
       const service = getService();
@@ -231,21 +271,24 @@ export function registerCommonAutomationRoutes(
       if (!resolved.ok) return resolved.error;
       const elems = await service.getElements(ctx.params.id, resolved.selector);
       return { status: 200, body: { elements: elems } };
-    },
+    }),
   );
 
   // Get element by text content
-  ns.get("/instances/:id/elementByText", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/elementByText", safeRoute(async (ctx: RouterContext) => {
     const txt = ctx.searchParams.get("text") ?? "";
+    if (!txt) {
+      return { status: 400, body: { error: "text parameter required" } };
+    }
     const service = getService();
     const elem = await service.getElementByText(ctx.params.id, txt);
     return { status: 200, body: { element: elem } };
-  });
+  }));
 
   // Get element text content by selector or fingerprint
   ns.get<unknown, TextResponse>(
     "/instances/:id/elementTextContent",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const selector = ctx.searchParams.get("selector");
       const fingerprint = ctx.searchParams.get("fingerprint");
       const service = getService();
@@ -261,13 +304,13 @@ export function registerCommonAutomationRoutes(
         resolved.selector,
       );
       return { status: 200, body: text != null ? { text } : {} };
-    },
+    }),
   );
 
   // Resolve fingerprint to CSS selector
   ns.get<{ selector?: string; error?: string }>(
     "/instances/:id/resolveFingerprint",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const fingerprint = ctx.searchParams.get("fingerprint") ?? "";
 
       // Validate fingerprint format (8 or 16 alphanumeric lowercase chars)
@@ -296,26 +339,26 @@ export function registerCommonAutomationRoutes(
         return { status: 404, body: { error: "fingerprint not found" } };
       }
       return { status: 200, body: { selector } };
-    },
+    }),
   );
 
   // Clear all visual effects (highlights, overlays, info panels)
   ns.post<unknown, { ok?: boolean; error?: string }>(
     "/instances/:id/clearEffects",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const service = getService();
       if (!service.clearEffects) {
         return { status: 501, body: { error: "clearEffects not supported" } };
       }
       const ok = await service.clearEffects(ctx.params.id);
       return { status: 200, body: { ok } };
-    },
+    }),
   );
 
   // Click element (selector or fingerprint)
   ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
     "/instances/:id/click",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as {
         selector?: string;
         fingerprint?: string;
@@ -333,14 +376,14 @@ export function registerCommonAutomationRoutes(
         resolved.selector,
       );
       return { status: 200, body: { ok: okClicked ?? false } };
-    },
+    }),
   );
 
   // Wait for element to appear (selector or fingerprint)
   ns.post<
     { fingerprint: string; timeout?: number; state?: WaitForElementState },
     { ok: boolean; found: boolean } | ErrorResponse
-  >("/instances/:id/waitForElement", async (ctx: RouterContext) => {
+  >("/instances/:id/waitForElement", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       selector?: string;
       fingerprint: string;
@@ -372,7 +415,7 @@ export function registerCommonAutomationRoutes(
       json?.fingerprint,
     );
     if (!resolved.ok) return resolved.error;
-    const to = json?.timeout ?? 5000;
+    const to = clampTimeout(json?.timeout, 5000);
     const found = await service.waitForElement(
       ctx.params.id,
       resolved.selector,
@@ -381,19 +424,19 @@ export function registerCommonAutomationRoutes(
     );
     const result = found ?? false;
     return { status: 200, body: { ok: result, found: result } };
-  });
+  }));
 
   // Take viewport screenshot
-  ns.get("/instances/:id/screenshot", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/screenshot", safeRoute(async (ctx: RouterContext) => {
     const service = getService();
     const image = await service.takeScreenshot(ctx.params.id);
     return { status: 200, body: { image } };
-  });
+  }));
 
   // Take element screenshot by selector or fingerprint
   ns.get<unknown, { image?: string; error?: string }>(
     "/instances/:id/elementScreenshot",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const selector = ctx.searchParams.get("selector");
       const fingerprint = ctx.searchParams.get("fingerprint");
       const service = getService();
@@ -409,23 +452,23 @@ export function registerCommonAutomationRoutes(
         resolved.selector,
       );
       return { status: 200, body: image != null ? { image } : {} };
-    },
+    }),
   );
 
   // Take full page screenshot
-  ns.get("/instances/:id/fullPageScreenshot", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/fullPageScreenshot", safeRoute(async (ctx: RouterContext) => {
     const service = getService();
     const image = await service.takeFullPageScreenshot(ctx.params.id);
     return { status: 200, body: { image } };
-  });
+  }));
 
   // Take region screenshot
-  ns.post("/instances/:id/regionScreenshot", async (ctx: RouterContext) => {
+  ns.post("/instances/:id/regionScreenshot", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as { rect?: ScreenshotRect } | null;
     const service = getService();
     const image = await service.takeRegionScreenshot(ctx.params.id, json?.rect);
     return { status: 200, body: { image } };
-  });
+  }));
 
   // Fill form fields (selector keys, or fingerprint keys when resolvable)
   ns.post<
@@ -435,7 +478,7 @@ export function registerCommonAutomationRoutes(
       typingDelayMs?: number;
     },
     OkResponse | ErrorResponse
-  >("/instances/:id/fillForm", async (ctx: RouterContext) => {
+  >("/instances/:id/fillForm", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       formData?: Record<string, string>;
       typingMode?: boolean;
@@ -457,15 +500,19 @@ export function registerCommonAutomationRoutes(
         };
       }
 
-      if (FINGERPRINT_REGEX.test(key) && service.resolveFingerprint) {
+      if (FINGERPRINT_REGEX.test(key)) {
+        if (!service.resolveFingerprint) {
+          return { status: 501, body: { error: "fingerprint resolution not supported" } };
+        }
         const resolvedSelector = await service.resolveFingerprint(
           ctx.params.id,
           key,
         );
-        if (resolvedSelector) {
-          resolvedFormData[resolvedSelector] = value;
-          continue;
+        if (!resolvedSelector) {
+          return { status: 404, body: { error: `Fingerprint '${key}' not found` } };
         }
+        resolvedFormData[resolvedSelector] = value;
+        continue;
       }
 
       resolvedFormData[key] = value;
@@ -476,12 +523,12 @@ export function registerCommonAutomationRoutes(
       typingDelayMs: json?.typingDelayMs,
     });
     return { status: 200, body: { ok: okFilled ?? false } };
-  });
+  }));
 
   // Get input value by selector or fingerprint
   ns.get<unknown, ValueResponse>(
     "/instances/:id/value",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const selector = ctx.searchParams.get("selector");
       const fingerprint = ctx.searchParams.get("fingerprint");
       const service = getService();
@@ -494,13 +541,13 @@ export function registerCommonAutomationRoutes(
       if (!resolved.ok) return resolved.error;
       const value = await service.getValue(ctx.params.id, resolved.selector);
       return { status: 200, body: value != null ? { value } : {} };
-    },
+    }),
   );
 
   // Submit form (selector or fingerprint)
   ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
     "/instances/:id/submit",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as {
         selector?: string;
         fingerprint?: string;
@@ -515,13 +562,13 @@ export function registerCommonAutomationRoutes(
       if (!resolved.ok) return resolved.error;
       const submitted = await service.submit(ctx.params.id, resolved.selector);
       return { status: 200, body: { ok: submitted ?? false } };
-    },
+    }),
   );
 
   // Clear input field (selector or fingerprint)
   ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
     "/instances/:id/clearInput",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as {
         selector?: string;
         fingerprint?: string;
@@ -539,14 +586,17 @@ export function registerCommonAutomationRoutes(
         resolved.selector,
       );
       return { status: 200, body: { ok: cleared ?? false } };
-    },
+    }),
   );
 
   // Get element attribute by selector or fingerprint
   ns.get<unknown, { value?: string | null; error?: string }>(
     "/instances/:id/attribute",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const attr = ctx.searchParams.get("name") ?? "";
+      if (!attr) {
+        return { status: 400, body: { error: "name parameter required" } };
+      }
       const selector = ctx.searchParams.get("selector");
       const fingerprint = ctx.searchParams.get("fingerprint");
       const service = getService();
@@ -563,13 +613,13 @@ export function registerCommonAutomationRoutes(
         attr,
       );
       return { status: 200, body: value != null ? { value } : { value: null } };
-    },
+    }),
   );
 
   // Check if element is visible by selector or fingerprint
   ns.get<unknown, { visible?: boolean; error?: string }>(
     "/instances/:id/isVisible",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const selector = ctx.searchParams.get("selector");
       const fingerprint = ctx.searchParams.get("fingerprint");
       const service = getService();
@@ -582,13 +632,13 @@ export function registerCommonAutomationRoutes(
       if (!resolved.ok) return resolved.error;
       const visible = await service.isVisible(ctx.params.id, resolved.selector);
       return { status: 200, body: { visible } };
-    },
+    }),
   );
 
   // Check if element is enabled by selector or fingerprint
   ns.get<unknown, { enabled?: boolean; error?: string }>(
     "/instances/:id/isEnabled",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const selector = ctx.searchParams.get("selector");
       const fingerprint = ctx.searchParams.get("fingerprint");
       const service = getService();
@@ -601,14 +651,14 @@ export function registerCommonAutomationRoutes(
       if (!resolved.ok) return resolved.error;
       const enabled = await service.isEnabled(ctx.params.id, resolved.selector);
       return { status: 200, body: { enabled } };
-    },
+    }),
   );
 
   // Select option in a select element (selector or fingerprint)
   ns.post<
     { fingerprint: string; value?: string },
     { ok: boolean } | ErrorResponse
-  >("/instances/:id/selectOption", async (ctx: RouterContext) => {
+  >("/instances/:id/selectOption", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       selector?: string;
       fingerprint?: string;
@@ -629,13 +679,13 @@ export function registerCommonAutomationRoutes(
       value,
     );
     return { status: 200, body: { ok: ok ?? false } };
-  });
+  }));
 
   // Set checked state of checkbox/radio (selector or fingerprint)
   ns.post<
     { fingerprint: string; checked?: boolean },
     { ok: boolean } | ErrorResponse
-  >("/instances/:id/setChecked", async (ctx: RouterContext) => {
+  >("/instances/:id/setChecked", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       selector?: string;
       fingerprint?: string;
@@ -656,12 +706,12 @@ export function registerCommonAutomationRoutes(
       checked,
     );
     return { status: 200, body: { ok: ok ?? false } };
-  });
+  }));
 
   // Hover over element (selector or fingerprint)
   ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
     "/instances/:id/hover",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as {
         selector?: string;
         fingerprint?: string;
@@ -676,13 +726,13 @@ export function registerCommonAutomationRoutes(
       if (!resolved.ok) return resolved.error;
       const ok = await service.hoverElement(ctx.params.id, resolved.selector);
       return { status: 200, body: { ok: ok ?? false } };
-    },
+    }),
   );
 
   // Scroll to element (selector or fingerprint)
   ns.post<{ fingerprint?: string }, { ok: boolean } | ErrorResponse>(
     "/instances/:id/scrollTo",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as {
         selector?: string;
         fingerprint?: string;
@@ -700,20 +750,20 @@ export function registerCommonAutomationRoutes(
         resolved.selector,
       );
       return { status: 200, body: { ok: ok ?? false } };
-    },
+    }),
   );
 
   // Get page title
-  ns.get("/instances/:id/title", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/title", safeRoute(async (ctx: RouterContext) => {
     const service = getService();
     const title = await service.getPageTitle(ctx.params.id);
     return { status: 200, body: title != null ? { title } : { title: null } };
-  });
+  }));
 
   // Double click element (selector or fingerprint)
   ns.post<{ fingerprint: string }, { ok?: boolean; error?: string }>(
     "/instances/:id/doubleClick",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as {
         selector?: string;
         fingerprint?: string;
@@ -731,13 +781,13 @@ export function registerCommonAutomationRoutes(
       }
       const ok = await service.doubleClick(ctx.params.id, resolved.selector);
       return { status: 200, body: { ok: ok ?? false } };
-    },
+    }),
   );
 
   // Right click element (selector or fingerprint)
   ns.post<{ fingerprint: string }, { ok?: boolean; error?: string }>(
     "/instances/:id/rightClick",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as {
         selector?: string;
         fingerprint?: string;
@@ -755,13 +805,13 @@ export function registerCommonAutomationRoutes(
       }
       const ok = await service.rightClick(ctx.params.id, resolved.selector);
       return { status: 200, body: { ok: ok ?? false } };
-    },
+    }),
   );
 
   // Focus element (selector or fingerprint)
   ns.post<{ fingerprint: string }, { ok?: boolean; error?: string }>(
     "/instances/:id/focus",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as {
         selector?: string;
         fingerprint?: string;
@@ -779,14 +829,14 @@ export function registerCommonAutomationRoutes(
       }
       const ok = await service.focusElement(ctx.params.id, resolved.selector);
       return { status: 200, body: { ok: ok ?? false } };
-    },
+    }),
   );
 
   // Drag and drop (selector or fingerprint for both source and target)
   ns.post<
     { sourceFingerprint: string; targetFingerprint: string },
     { ok: boolean } | ErrorResponse
-  >("/instances/:id/dragAndDrop", async (ctx: RouterContext) => {
+  >("/instances/:id/dragAndDrop", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       sourceSelector?: string;
       sourceFingerprint?: string;
@@ -814,14 +864,14 @@ export function registerCommonAutomationRoutes(
       target.selector,
     );
     return { status: 200, body: { ok: ok ?? false } };
-  });
+  }));
 
   // Get cookies
-  ns.get("/instances/:id/cookies", async (ctx: RouterContext) => {
+  ns.get("/instances/:id/cookies", safeRoute(async (ctx: RouterContext) => {
     const service = getService();
     const cookies = await service.getCookies(ctx.params.id);
     return { status: 200, body: { cookies } };
-  });
+  }));
 
   // Set cookie
   ns.post<
@@ -836,7 +886,7 @@ export function registerCommonAutomationRoutes(
       expirationDate?: number;
     },
     OkResponse | ErrorResponse
-  >("/instances/:id/cookie", async (ctx: RouterContext) => {
+  >("/instances/:id/cookie", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       name?: string;
       value?: string;
@@ -865,40 +915,40 @@ export function registerCommonAutomationRoutes(
       return { status: 500, body: { error: "failed to set cookie" } };
     }
     return { status: 200, body: { ok: true } };
-  });
+  }));
 
   // Accept alert
   ns.post<unknown, { ok?: boolean; error?: string }>(
     "/instances/:id/acceptAlert",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const service = getService();
       if (!service.acceptAlert) {
         return { status: 501, body: { error: "acceptAlert not supported" } };
       }
       const ok = await service.acceptAlert(ctx.params.id);
       return { status: 200, body: { ok: ok ?? false } };
-    },
+    }),
   );
 
   // Dismiss alert
   ns.post<unknown, { ok?: boolean; error?: string }>(
     "/instances/:id/dismissAlert",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const service = getService();
       if (!service.dismissAlert) {
         return { status: 501, body: { error: "dismissAlert not supported" } };
       }
       const ok = await service.dismissAlert(ctx.params.id);
       return { status: 200, body: { ok: ok ?? false } };
-    },
+    }),
   );
 
   // Wait for network idle
   ns.post<{ timeout?: number }, { ok?: boolean; error?: string }>(
     "/instances/:id/waitForNetworkIdle",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as { timeout?: number } | null;
-      const timeout = json?.timeout ?? 5000;
+      const timeout = clampTimeout(json?.timeout, 5000);
       const service = getService();
       if (!service.waitForNetworkIdle) {
         return {
@@ -908,23 +958,23 @@ export function registerCommonAutomationRoutes(
       }
       const ok = await service.waitForNetworkIdle(ctx.params.id, timeout);
       return { status: 200, body: { ok: ok ?? false } };
-    },
+    }),
   );
 
   // Wait for document ready (DOMContentLoaded)
-  ns.post("/instances/:id/waitForReady", async (ctx: RouterContext) => {
+  ns.post("/instances/:id/waitForReady", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as { timeout?: number } | null;
-    const timeout = json?.timeout ?? 15000;
+    const timeout = clampTimeout(json?.timeout, 15000);
     const service = getService();
     const ok = await service.waitForReady(ctx.params.id, timeout);
     return { status: 200, body: { ok: ok ?? false } };
-  });
+  }));
 
   // Set innerHTML (for contenteditable elements, selector or fingerprint)
   ns.post<
     { fingerprint: string; html?: string },
     { ok: boolean } | ErrorResponse
-  >("/instances/:id/setInnerHTML", async (ctx: RouterContext) => {
+  >("/instances/:id/setInnerHTML", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       selector?: string;
       fingerprint?: string;
@@ -945,13 +995,13 @@ export function registerCommonAutomationRoutes(
       html,
     );
     return { status: 200, body: { ok: ok ?? false } };
-  });
+  }));
 
   // Set textContent (for contenteditable elements, selector or fingerprint)
   ns.post<
     { fingerprint: string; text?: string },
     { ok: boolean } | ErrorResponse
-  >("/instances/:id/setTextContent", async (ctx: RouterContext) => {
+  >("/instances/:id/setTextContent", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       selector?: string;
       fingerprint?: string;
@@ -972,7 +1022,7 @@ export function registerCommonAutomationRoutes(
       text,
     );
     return { status: 200, body: { ok: ok ?? false } };
-  });
+  }));
 
   // Dispatch event on element (selector or fingerprint)
   ns.post<
@@ -983,13 +1033,16 @@ export function registerCommonAutomationRoutes(
       options?: { bubbles?: boolean; cancelable?: boolean };
     },
     { ok: boolean } | ErrorResponse
-  >("/instances/:id/dispatchEvent", async (ctx: RouterContext) => {
+  >("/instances/:id/dispatchEvent", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       selector?: string;
       fingerprint: string;
       eventType?: string;
       options?: { bubbles?: boolean; cancelable?: boolean };
     } | null;
+    if (!json?.eventType) {
+      return { status: 400, body: { error: "eventType required" } };
+    }
     const service = getService();
     const resolved = await resolveSelectorOrFingerprint(
       service,
@@ -998,16 +1051,15 @@ export function registerCommonAutomationRoutes(
       json?.fingerprint,
     );
     if (!resolved.ok) return resolved.error;
-    const eventType = json?.eventType ?? "";
     const options = json?.options;
     const ok = await service.dispatchEvent(
       ctx.params.id,
       resolved.selector,
-      eventType,
+      json.eventType,
       options,
     );
     return { status: 200, body: { ok: ok ?? false } };
-  });
+  }));
 
   // Type into an element (optional typing mode, selector or fingerprint)
   ns.post<
@@ -1019,7 +1071,7 @@ export function registerCommonAutomationRoutes(
       typingDelayMs?: number;
     },
     OkResponse | ErrorResponse
-  >("/instances/:id/input", async (ctx: RouterContext) => {
+  >("/instances/:id/input", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       selector?: string;
       fingerprint: string;
@@ -1053,12 +1105,12 @@ export function registerCommonAutomationRoutes(
       },
     );
     return { status: 200, body: { ok: !!ok } };
-  });
+  }));
 
   // Press key or key combination
   ns.post<{ key?: string }, OkResponse | ErrorResponse>(
     "/instances/:id/pressKey",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as { key?: string } | null;
       if (!json?.key) {
         return { status: 400, body: { error: "key required" } };
@@ -1069,14 +1121,14 @@ export function registerCommonAutomationRoutes(
       }
       const ok = await service.pressKey(ctx.params.id, json.key);
       return { status: 200, body: { ok: !!ok } };
-    },
+    }),
   );
 
   // Upload file via input[type=file] (selector or fingerprint)
   ns.post<
     { fingerprint: string; filePath?: string },
     OkResponse | ErrorResponse
-  >("/instances/:id/uploadFile", async (ctx: RouterContext) => {
+  >("/instances/:id/uploadFile", safeRoute(async (ctx: RouterContext) => {
     const json = ctx.json() as {
       selector?: string;
       fingerprint?: string;
@@ -1103,12 +1155,12 @@ export function registerCommonAutomationRoutes(
       json.filePath,
     );
     return { status: 200, body: { ok: !!ok } };
-  });
+  }));
 
   // Dispatch text input event (for rich text editors, selector or fingerprint)
   ns.post<{ fingerprint: string; text?: string }, OkResponse | ErrorResponse>(
     "/instances/:id/dispatchTextInput",
-    async (ctx: RouterContext) => {
+    safeRoute(async (ctx: RouterContext) => {
       const json = ctx.json() as {
         selector?: string;
         fingerprint?: string;
@@ -1132,6 +1184,6 @@ export function registerCommonAutomationRoutes(
         json.text,
       );
       return { status: 200, body: { ok: !!ok } };
-    },
+    }),
   );
 }

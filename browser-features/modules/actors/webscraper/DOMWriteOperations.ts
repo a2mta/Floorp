@@ -201,7 +201,7 @@ export class DOMWriteOperations {
       }
 
       rawElement.dispatchEvent(
-        new FocusEv("blur", cloneOpts({ bubbles: true })),
+        new FocusEv("blur", cloneOpts({ bubbles: false })),
       );
       return true;
     } catch (e) {
