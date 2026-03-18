@@ -47,10 +47,17 @@ export class DOMWriteOperations {
 
       if (rawDoc.execCommand(command, false, value)) {
         const EventCtor = rawWin.Event ?? globalThis.Event;
+        const cloneOpts = (opts: object) =>
+          this.deps.eventDispatcher.cloneIntoPageContext(opts);
         rawElement.dispatchEvent(
-          new EventCtor("input", { bubbles: true, cancelable: true }),
+          new EventCtor(
+            "input",
+            cloneOpts({ bubbles: true, cancelable: true }),
+          ),
         );
-        rawElement.dispatchEvent(new EventCtor("change", { bubbles: true }));
+        rawElement.dispatchEvent(
+          new EventCtor("change", cloneOpts({ bubbles: true })),
+        );
         return true;
       }
     } catch (e) {
@@ -134,16 +141,22 @@ export class DOMWriteOperations {
       const KeyboardEv = rawWin.KeyboardEvent ?? globalThis.KeyboardEvent;
       const FocusEv = rawWin.FocusEvent ?? globalThis.FocusEvent;
 
+      const cloneOpts = (opts: object) =>
+        this.deps.eventDispatcher.cloneIntoPageContext(opts);
+
       const dispatchBeforeInput = (data: string) => {
         try {
           if (InputEv) {
             rawElement.dispatchEvent(
-              new InputEv("beforeinput", {
-                bubbles: true,
-                cancelable: true,
-                inputType: "insertText",
-                data,
-              }),
+              new InputEv(
+                "beforeinput",
+                cloneOpts({
+                  bubbles: true,
+                  cancelable: true,
+                  inputType: "insertText",
+                  data,
+                }),
+              ),
             );
           }
         } catch {
@@ -156,9 +169,6 @@ export class DOMWriteOperations {
         : (v: string) => {
             rawElement.value = v;
           };
-
-      const cloneOpts = (opts: object) =>
-        this.deps.eventDispatcher.cloneIntoPageContext(opts);
 
       if (typingMode) {
         setValue("");
@@ -385,7 +395,12 @@ export class DOMWriteOperations {
         );
         if (rawWin) {
           const MouseEv = rawWin.MouseEvent ?? globalThis.MouseEvent;
-          rawElement.dispatchEvent(new MouseEv("click", { bubbles: true }));
+          rawElement.dispatchEvent(
+            new MouseEv(
+              "click",
+              this.deps.eventDispatcher.cloneIntoPageContext({ bubbles: true }),
+            ),
+          );
         }
       }
 
@@ -550,12 +565,11 @@ export class DOMWriteOperations {
     }
   }
 
-
   /**
    * Dispatches a proper text input event sequence for rich text editors.
    * This fires beforeinput with inputType: insertText, which Draft.js and similar
    * frameworks listen for to update their internal state.
-   * 
+   *
    * Unlike setTextContent, this does NOT set textContent directly - it lets the
    * editor handle the text insertion via the beforeinput event.
    *
@@ -568,7 +582,7 @@ export class DOMWriteOperations {
    * in response to the beforeinput event. We don't set textContent directly
    * as it would break Draft.js's internal state.
    */
-  async dispatchTextInput(selector: string, text: string): Promise<boolean> {
+  dispatchTextInput(selector: string, text: string): boolean {
     try {
       const doc = this.document;
       if (!doc) return false;
@@ -598,35 +612,45 @@ export class DOMWriteOperations {
 
       const InputEv = rawWin.InputEvent ?? null;
       const EventCtor = rawWin.Event ?? globalThis.Event;
+      const cloneOpts = (opts: object) =>
+        this.deps.eventDispatcher.cloneIntoPageContext(opts);
 
       // 1. Fire beforeinput (this is what Draft.js listens for)
       if (InputEv) {
-        const beforeInputEvent = new InputEv("beforeinput", {
-          bubbles: true,
-          cancelable: true,
-          inputType: "insertText",
-          data: text,
-        });
+        const beforeInputEvent = new InputEv(
+          "beforeinput",
+          cloneOpts({
+            bubbles: true,
+            cancelable: true,
+            inputType: "insertText",
+            data: text,
+          }),
+        );
         const notCancelled = rawElement.dispatchEvent(beforeInputEvent);
-        
+
         // If the editor cancelled the event, it will handle the insertion itself
         // Don't set textContent - let the editor do it
         if (notCancelled) {
           // 2. Fire input event for good measure
           rawElement.dispatchEvent(
-            new InputEv("input", {
-              bubbles: true,
-              cancelable: false,
-              inputType: "insertText",
-              data: text,
-            }),
+            new InputEv(
+              "input",
+              cloneOpts({
+                bubbles: true,
+                cancelable: false,
+                inputType: "insertText",
+                data: text,
+              }),
+            ),
           );
-          
+
           // 3. Fire change event
-          rawElement.dispatchEvent(new EventCtor("change", { bubbles: true }));
+          rawElement.dispatchEvent(
+            new EventCtor("change", cloneOpts({ bubbles: true })),
+          );
           return true;
         }
-        
+
         // Editor handled it via beforeinput
         return true;
       }
@@ -640,7 +664,7 @@ export class DOMWriteOperations {
       // No fallback available - setting textContent directly breaks Draft.js
       // because it doesn't update the editor's internal EditorState
       console.warn(
-        "DOMWriteOperations: dispatchTextInput failed - no fallback available for this editor"
+        "DOMWriteOperations: dispatchTextInput failed - no fallback available for this editor",
       );
       return false;
     } catch (e) {
@@ -727,15 +751,20 @@ export class DOMWriteOperations {
 
       const EventCtor = rawWin.Event ?? globalThis.Event;
       const InputEv = (rawWin?.InputEvent ?? null) as typeof InputEvent | null;
+      const cloneOpts = (opts: object) =>
+        this.deps.eventDispatcher.cloneIntoPageContext(opts);
 
       if (InputEv) {
         rawElement.dispatchEvent(
-          new InputEv("beforeinput", {
-            bubbles: true,
-            cancelable: true,
-            inputType: "insertHTML",
-            data: null,
-          }),
+          new InputEv(
+            "beforeinput",
+            cloneOpts({
+              bubbles: true,
+              cancelable: true,
+              inputType: "insertHTML",
+              data: null,
+            }),
+          ),
         );
       }
 
@@ -747,19 +776,27 @@ export class DOMWriteOperations {
 
       if (InputEv) {
         rawElement.dispatchEvent(
-          new InputEv("input", {
-            bubbles: true,
-            cancelable: false,
-            inputType: "insertHTML",
-          }),
+          new InputEv(
+            "input",
+            cloneOpts({
+              bubbles: true,
+              cancelable: false,
+              inputType: "insertHTML",
+            }),
+          ),
         );
       } else {
         rawElement.dispatchEvent(
-          new EventCtor("input", { bubbles: true, cancelable: true }),
+          new EventCtor(
+            "input",
+            cloneOpts({ bubbles: true, cancelable: true }),
+          ),
         );
       }
 
-      rawElement.dispatchEvent(new EventCtor("change", { bubbles: true }));
+      rawElement.dispatchEvent(
+        new EventCtor("change", cloneOpts({ bubbles: true })),
+      );
 
       return true;
     } catch (e) {
@@ -818,15 +855,20 @@ export class DOMWriteOperations {
 
       const EventCtor = rawWin.Event ?? globalThis.Event;
       const InputEv = rawWin.InputEvent ?? null;
+      const cloneOpts = (opts: object) =>
+        this.deps.eventDispatcher.cloneIntoPageContext(opts);
 
       if (InputEv) {
         rawElement.dispatchEvent(
-          new InputEv("beforeinput", {
-            bubbles: true,
-            cancelable: true,
-            inputType: "insertText",
-            data: text,
-          }),
+          new InputEv(
+            "beforeinput",
+            cloneOpts({
+              bubbles: true,
+              cancelable: true,
+              inputType: "insertText",
+              data: text,
+            }),
+          ),
         );
       }
 
@@ -838,20 +880,28 @@ export class DOMWriteOperations {
 
       if (InputEv) {
         rawElement.dispatchEvent(
-          new InputEv("input", {
-            bubbles: true,
-            cancelable: false,
-            inputType: "insertText",
-            data: text,
-          }),
+          new InputEv(
+            "input",
+            cloneOpts({
+              bubbles: true,
+              cancelable: false,
+              inputType: "insertText",
+              data: text,
+            }),
+          ),
         );
       } else {
         rawElement.dispatchEvent(
-          new EventCtor("input", { bubbles: true, cancelable: true }),
+          new EventCtor(
+            "input",
+            cloneOpts({ bubbles: true, cancelable: true }),
+          ),
         );
       }
 
-      rawElement.dispatchEvent(new EventCtor("change", { bubbles: true }));
+      rawElement.dispatchEvent(
+        new EventCtor("change", cloneOpts({ bubbles: true })),
+      );
 
       return true;
     } catch (e) {

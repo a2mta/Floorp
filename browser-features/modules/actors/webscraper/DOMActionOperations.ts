@@ -66,10 +66,16 @@ export class DOMActionOperations {
         .catch(() => {});
 
       const win = this.contentWindow ?? null;
-      const Ev = (win?.Event ?? globalThis.Event) as typeof Event;
-      const MouseEv = (win?.MouseEvent ?? globalThis.MouseEvent ?? null) as
+      const rawWin = unwrapWindow(win);
+      const rawElement = unwrapElement(
+        element as HTMLElement & Partial<{ wrappedJSObject: HTMLElement }>,
+      );
+      const Ev = (rawWin?.Event ?? globalThis.Event) as typeof Event;
+      const MouseEv = (rawWin?.MouseEvent ?? globalThis.MouseEvent ?? null) as
         | typeof MouseEvent
         | null;
+      const cloneOpts = (opts: object) =>
+        this.deps.eventDispatcher.cloneIntoPageContext(opts);
 
       const tagName = (element.tagName || "").toUpperCase();
       const isInput = tagName === "INPUT";
@@ -81,8 +87,12 @@ export class DOMActionOperations {
 
       const triggerInputEvents = () => {
         try {
-          element.dispatchEvent(new Ev("input", { bubbles: true }));
-          element.dispatchEvent(new Ev("change", { bubbles: true }));
+          rawElement.dispatchEvent(
+            new Ev("input", cloneOpts({ bubbles: true })),
+          );
+          rawElement.dispatchEvent(
+            new Ev("change", cloneOpts({ bubbles: true })),
+          );
         } catch (err) {
           console.warn(
             "DOMActionOperations: input/change dispatch failed",
@@ -121,9 +131,6 @@ export class DOMActionOperations {
         );
 
       try {
-        const rawElement = unwrapElement(
-          element as HTMLElement & Partial<{ wrappedJSObject: HTMLElement }>,
-        );
         rawElement.click();
         clickDispatched = true;
       } catch {
@@ -132,13 +139,15 @@ export class DOMActionOperations {
 
       if (!clickDispatched && MouseEv) {
         try {
-          element.dispatchEvent(
-            new MouseEv("click", {
-              bubbles: true,
-              cancelable: true,
-              composed: true,
-              view: win ?? undefined,
-            }),
+          rawElement.dispatchEvent(
+            new MouseEv(
+              "click",
+              this.deps.eventDispatcher.cloneEventInit({
+                bubbles: true,
+                cancelable: true,
+                composed: true,
+              }),
+            ),
           );
           clickDispatched = true;
         } catch (err) {
@@ -148,8 +157,8 @@ export class DOMActionOperations {
 
       if ((isButton || isLink) && !clickDispatched) {
         try {
-          element.dispatchEvent(
-            new Ev("submit", { bubbles: true, cancelable: true }),
+          rawElement.dispatchEvent(
+            new Ev("submit", cloneOpts({ bubbles: true, cancelable: true })),
           );
         } catch (err) {
           console.warn("DOMActionOperations: submit dispatch failed", err);
@@ -201,33 +210,41 @@ export class DOMActionOperations {
       if (!rawWin) return false;
 
       const MouseEv = rawWin.MouseEvent ?? globalThis.MouseEvent;
+      const cloneEvInit = (opts: Record<string, unknown>) =>
+        this.deps.eventDispatcher.cloneEventInit(opts);
 
       rawElement.dispatchEvent(
-        new MouseEv("mouseenter", {
-          bubbles: false,
-          cancelable: false,
-          clientX: centerX,
-          clientY: centerY,
-          view: rawWin as Window & typeof globalThis,
-        }),
+        new MouseEv(
+          "mouseenter",
+          cloneEvInit({
+            bubbles: false,
+            cancelable: false,
+            clientX: centerX,
+            clientY: centerY,
+          }),
+        ),
       );
       rawElement.dispatchEvent(
-        new MouseEv("mouseover", {
-          bubbles: true,
-          cancelable: true,
-          clientX: centerX,
-          clientY: centerY,
-          view: rawWin as Window & typeof globalThis,
-        }),
+        new MouseEv(
+          "mouseover",
+          cloneEvInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: centerX,
+            clientY: centerY,
+          }),
+        ),
       );
       rawElement.dispatchEvent(
-        new MouseEv("mousemove", {
-          bubbles: true,
-          cancelable: true,
-          clientX: centerX,
-          clientY: centerY,
-          view: rawWin as Window & typeof globalThis,
-        }),
+        new MouseEv(
+          "mousemove",
+          cloneEvInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: centerX,
+            clientY: centerY,
+          }),
+        ),
       );
 
       return true;
@@ -314,14 +331,16 @@ export class DOMActionOperations {
       const MouseEv = rawWin.MouseEvent ?? globalThis.MouseEvent;
 
       rawElement.dispatchEvent(
-        new MouseEv("dblclick", {
-          bubbles: true,
-          cancelable: true,
-          clientX: centerX,
-          clientY: centerY,
-          view: rawWin as Window & typeof globalThis,
-          detail: 2,
-        }),
+        new MouseEv(
+          "dblclick",
+          this.deps.eventDispatcher.cloneEventInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: centerX,
+            clientY: centerY,
+            detail: 2,
+          }),
+        ),
       );
 
       return true;
@@ -374,14 +393,16 @@ export class DOMActionOperations {
       const MouseEv = rawWin.MouseEvent ?? globalThis.MouseEvent;
 
       rawElement.dispatchEvent(
-        new MouseEv("contextmenu", {
-          bubbles: true,
-          cancelable: true,
-          clientX: centerX,
-          clientY: centerY,
-          view: rawWin as Window & typeof globalThis,
-          button: 2,
-        }),
+        new MouseEv(
+          "contextmenu",
+          this.deps.eventDispatcher.cloneEventInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: centerX,
+            clientY: centerY,
+            button: 2,
+          }),
+        ),
       );
 
       return true;
@@ -471,7 +492,12 @@ export class DOMActionOperations {
         try {
           return (
             activeRaw?.dispatchEvent(
-              new KeyboardEv(type, { ...opts, view: rawWin }),
+              new KeyboardEv(
+                type,
+                this.deps.eventDispatcher.cloneEventInit(
+                  opts as Record<string, unknown>,
+                ),
+              ),
             ) ?? false
           );
         } catch {
@@ -555,70 +581,83 @@ export class DOMActionOperations {
 
       const dataTransfer = new DataTransferCtor();
 
-      rawSource.dispatchEvent(
-        new DragEv("dragstart", {
-          bubbles: true,
-          cancelable: true,
-          clientX: sourceX,
-          clientY: sourceY,
-          dataTransfer,
-          view: rawWin as Window & typeof globalThis,
-        }),
-      );
+      // Clone serializable properties, then re-attach dataTransfer (non-clonable DOM object)
+      const makeDragInit = (serializable: Record<string, unknown>) => {
+        const cloned = this.deps.eventDispatcher.cloneEventInit(serializable);
+        (cloned as Record<string, unknown>).dataTransfer = dataTransfer;
+        return cloned;
+      };
 
       rawSource.dispatchEvent(
-        new DragEv("drag", {
-          bubbles: true,
-          cancelable: true,
-          clientX: sourceX,
-          clientY: sourceY,
-          dataTransfer,
-          view: rawWin as Window & typeof globalThis,
-        }),
-      );
-
-      rawTarget.dispatchEvent(
-        new DragEv("dragenter", {
-          bubbles: true,
-          cancelable: true,
-          clientX: targetX,
-          clientY: targetY,
-          dataTransfer,
-          view: rawWin as Window & typeof globalThis,
-        }),
-      );
-
-      rawTarget.dispatchEvent(
-        new DragEv("dragover", {
-          bubbles: true,
-          cancelable: true,
-          clientX: targetX,
-          clientY: targetY,
-          dataTransfer,
-          view: rawWin as Window & typeof globalThis,
-        }),
-      );
-
-      rawTarget.dispatchEvent(
-        new DragEv("drop", {
-          bubbles: true,
-          cancelable: true,
-          clientX: targetX,
-          clientY: targetY,
-          dataTransfer,
-          view: rawWin as Window & typeof globalThis,
-        }),
+        new DragEv(
+          "dragstart",
+          makeDragInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: sourceX,
+            clientY: sourceY,
+          }),
+        ),
       );
 
       rawSource.dispatchEvent(
-        new DragEv("dragend", {
-          bubbles: true,
-          cancelable: false,
-          clientX: targetX,
-          clientY: targetY,
-          dataTransfer,
-          view: rawWin as Window & typeof globalThis,
-        }),
+        new DragEv(
+          "drag",
+          makeDragInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: sourceX,
+            clientY: sourceY,
+          }),
+        ),
+      );
+
+      rawTarget.dispatchEvent(
+        new DragEv(
+          "dragenter",
+          makeDragInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: targetX,
+            clientY: targetY,
+          }),
+        ),
+      );
+
+      rawTarget.dispatchEvent(
+        new DragEv(
+          "dragover",
+          makeDragInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: targetX,
+            clientY: targetY,
+          }),
+        ),
+      );
+
+      rawTarget.dispatchEvent(
+        new DragEv(
+          "drop",
+          makeDragInit({
+            bubbles: true,
+            cancelable: true,
+            clientX: targetX,
+            clientY: targetY,
+          }),
+        ),
+      );
+
+      rawSource.dispatchEvent(
+        new DragEv(
+          "dragend",
+          makeDragInit({
+            bubbles: true,
+            cancelable: false,
+            clientX: targetX,
+            clientY: targetY,
+          }),
+        ),
       );
 
       return true;

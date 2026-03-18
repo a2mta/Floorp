@@ -250,7 +250,7 @@ export class DOMOperations {
   }
 
 
-  dispatchTextInput(selector: string, text: string): Promise<boolean> {
+  dispatchTextInput(selector: string, text: string): boolean {
     return this.writeOps.dispatchTextInput(selector, text);
   }
 

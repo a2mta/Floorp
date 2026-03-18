@@ -37,7 +37,13 @@ interface BrowserTab {
 interface GBrowser {
   tabs: BrowserTab[];
   selectedTab: BrowserTab;
-  tabContainer: EventTarget & { addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void };
+  tabContainer: EventTarget & {
+    addEventListener(
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+      options?: boolean | AddEventListenerOptions,
+    ): void;
+  };
   addTab(
     url: string,
     options: {
@@ -154,8 +160,13 @@ class TabManager {
     Services.obs.addObserver(
       {
         observe: (subject: nsISupports) => {
-          // deno-lint-ignore no-explicit-any
-          const win = (subject as any).QueryInterface(Ci.nsIDOMWindow) as Window;
+          let win: Window;
+          try {
+            // deno-lint-ignore no-explicit-any
+            win = (subject as any).QueryInterface(Ci.nsIDOMWindow) as Window;
+          } catch {
+            return;
+          }
           win.addEventListener(
             "load",
             () => {
@@ -179,8 +190,13 @@ class TabManager {
     Services.obs.addObserver(
       {
         observe: (subject: nsISupports) => {
-          // deno-lint-ignore no-explicit-any
-          const win = (subject as any).QueryInterface(Ci.nsIDOMWindow) as Window;
+          let win: Window;
+          try {
+            // deno-lint-ignore no-explicit-any
+            win = (subject as any).QueryInterface(Ci.nsIDOMWindow) as Window;
+          } catch {
+            return;
+          }
           this._listenedWindows.delete(win);
         },
       },
@@ -534,8 +550,10 @@ class TabManager {
 
     // Check tab is still alive (user may have closed it during load)
     const currentBrowser = tab.linkedBrowser;
-    if (!currentBrowser?.ownerGlobal ||
-      (currentBrowser.ownerGlobal as Window).closed) {
+    if (
+      !currentBrowser?.ownerGlobal ||
+      (currentBrowser.ownerGlobal as Window).closed
+    ) {
       throw new Error("Tab was closed during load");
     }
 
@@ -622,8 +640,9 @@ class TabManager {
     instanceId: string,
   ): Promise<TabInstanceInfo | null> {
     const { tab, browser } = this._getInstance(instanceId);
-    const win = (browser.ownerGlobal as Window & { gBrowser: GBrowser })
-      ?? (getBrowserWindow() as Window & { gBrowser: GBrowser });
+    const win =
+      (browser.ownerGlobal as Window & { gBrowser: GBrowser }) ??
+      (getBrowserWindow() as Window & { gBrowser: GBrowser });
     const gBrowser = win?.gBrowser;
     if (!gBrowser) {
       return null;
