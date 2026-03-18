@@ -1,57 +1,55 @@
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
+import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { editorConfig } from "./config.ts";
 import { Toolbar } from "./Toolbar.tsx";
 
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
-import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { ListPlugin } from "@lexical/react/LexicalListPlugin";
 import { CheckListPlugin } from "@lexical/react/LexicalCheckListPlugin";
 import { SerializedEditorState, SerializedLexicalNode } from "lexical";
-import { useEffect, useRef } from "react";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $getRoot, $createParagraphNode, $createTextNode } from "lexical";
+import { useEffect, useRef, memo } from "react";
+import { useTranslation } from "react-i18next";
 
 interface RichTextEditorProps {
     onChange: (editorState: SerializedEditorState<SerializedLexicalNode>) => void;
     initialContent?: string;
-    noteId?: string;
 }
 
-export const RichTextEditor = ({ onChange, initialContent, noteId }: RichTextEditorProps) => {
-    return (
-        <LexicalComposer initialConfig={editorConfig}>
-            <EditorContent onChange={onChange} initialContent={initialContent} noteId={noteId} />
-        </LexicalComposer>
-    );
-};
+// React.memo: only re-render (remount) when key changes (note switch).
+// onChange is stable (useCallback with [] deps in parent).
+// initialContent changes on every edit but is only used on mount — ignore it.
+export const RichTextEditor = memo(
+    ({ onChange, initialContent }: RichTextEditorProps) => {
+        return (
+            <LexicalComposer initialConfig={editorConfig}>
+                <EditorContent onChange={onChange} initialContent={initialContent} />
+            </LexicalComposer>
+        );
+    },
+    (prev, next) => prev.onChange === next.onChange,
+);
 
-const EditorContent = ({ onChange, initialContent, noteId }: RichTextEditorProps) => {
-    const [editor] = useLexicalComposerContext();
-    const lastNoteIdRef = useRef<string | undefined>(undefined);
-    const isInternalChange = useRef(false);
-    const isInitialized = useRef(false);
+// React.memo with () => true: never re-render during editing.
+// All editor state is managed internally by Lexical, not React props.
+const EditorContent = memo(
+    ({ onChange, initialContent }: RichTextEditorProps) => {
+        const [editor] = useLexicalComposerContext();
+        const { t } = useTranslation();
+        const skipNextChange = useRef(true);
 
-    // Update content when noteId changes (switching between notes)
-    // Also runs on mount when first initialized
-    useEffect(() => {
-        // Only update when noteId changes or on first mount
-        // We don't check initialContent here because it changes on every edit
-        // and we don't want to reset editor state during normal editing
-        const shouldUpdate = noteId !== lastNoteIdRef.current || !isInitialized.current;
+        // Set initial content on mount only
+        useEffect(() => {
+            skipNextChange.current = true;
 
-        if (shouldUpdate) {
-            lastNoteIdRef.current = noteId;
-            isInternalChange.current = true;
-            isInitialized.current = true;
-            
             if (initialContent) {
                 try {
                     const parsedContent = JSON.parse(initialContent);
                     editor.setEditorState(editor.parseEditorState(parsedContent));
-                } catch (e) {
-                    console.log("Failed to parse initial content:", e);
+                } catch {
                     editor.update(() => {
                         const root = $getRoot();
                         root.clear();
@@ -68,46 +66,49 @@ const EditorContent = ({ onChange, initialContent, noteId }: RichTextEditorProps
                     });
                 }
             } else {
-                editor.update(() => {
-                    const root = $getRoot();
-                    root.clear();
-                    root.append($createParagraphNode());
-                });
+                skipNextChange.current = false;
             }
-            
-            // Reset flag after a short delay to allow OnChangePlugin to settle
-            setTimeout(() => {
-                isInternalChange.current = false;
-            }, 0);
-        }
-    }, [editor, initialContent, noteId]);
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, []);
 
-    return (
-        <div className="flex flex-col h-full">
-            <Toolbar />
-            <div className="flex-1 overflow-auto p-4">
-                <RichTextPlugin
-                    contentEditable={
-                        <ContentEditable className="h-full outline-none" />
-                    }
-                    ErrorBoundary={({ children }) => children}
-                />
-            </div>
-            {onChange && (
-                <OnChangePlugin
-                    onChange={(editorState) => {
-                        if (!isInternalChange.current) {
-                            editorState.read(() => {
-                                const content = editorState.toJSON();
-                                onChange(content);
-                            });
+        // Listen for content changes only (not selection changes)
+        useEffect(() => {
+            return editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves }) => {
+                const isDirty = dirtyElements.size > 0 || dirtyLeaves.size > 0;
+                if (!isDirty) return;
+
+                if (skipNextChange.current) {
+                    skipNextChange.current = false;
+                    return;
+                }
+
+                editorState.read(() => {
+                    onChange(editorState.toJSON());
+                });
+            });
+        }, [editor, onChange]);
+
+        return (
+            <div className="flex flex-col h-full">
+                <Toolbar />
+                <div className="flex-1 overflow-auto p-2">
+                    <RichTextPlugin
+                        contentEditable={
+                            <ContentEditable
+                                className="h-full outline-none"
+                                aria-label={t("editor.contentArea")}
+                                aria-multiline={true}
+                                spellCheck={false}
+                            />
                         }
-                    }}
-                />
-            )}
-            <ListPlugin />
-            <CheckListPlugin />
-            <HistoryPlugin />
-        </div>
-    );
-};
+                        ErrorBoundary={LexicalErrorBoundary}
+                    />
+                </div>
+                <ListPlugin />
+                <CheckListPlugin />
+                <HistoryPlugin />
+            </div>
+        );
+    },
+    () => true, // Never re-render — all updates are handled via Lexical's internal state
+);

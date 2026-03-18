@@ -1,39 +1,60 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { NoteList } from "./components/notes/NoteList.tsx";
 import { RichTextEditor } from "./components/editor/RichTextEditor.tsx";
 import { SerializedEditorState, SerializedLexicalNode } from "lexical";
 import { getNotes, NotesData, saveNotes } from "./lib/dataManager.ts";
 import { useTranslation } from "react-i18next";
+import { ConfirmModal } from "./components/common/ConfirmModal.tsx";
+import { SaveStatus } from "./components/common/SaveStatus.tsx";
+import { NoteSearch } from "./components/notes/NoteSearch.tsx";
+import type { Note } from "./types/note.ts";
 
-interface Note {
-  id: string;
-  title: string;
-  content: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
+type SaveStatusType = "idle" | "saving" | "saved" | "error";
 
+let appRenderCount = 0;
 function App() {
+  appRenderCount++;
+  console.log(`[App] render #${appRenderCount}`);
   const { t } = useTranslation();
   const [notes, setNotes] = useState<Note[]>([]);
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [title, setTitle] = useState("");
   const [isReorderMode, setIsReorderMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState<SaveStatusType>("idle");
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titleSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notesRef = useRef<Note[]>([]);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const createButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Keep notesRef in sync
+  useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
+
+  // Auto-reset "saved" status after 2 seconds
+  useEffect(() => {
+    if (saveStatus === "saved") {
+      const timer = setTimeout(() => setSaveStatus("idle"), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [saveStatus]);
 
   useEffect(() => {
     const loadNotes = async () => {
       try {
         setIsLoading(true);
-        const notesData = await getNotes();
+        const notesData = await getNotes(t);
 
-        const convertedNotes: Note[] = notesData.titles.map((title, index) => ({
-          id: `note-${index}`,
-          title: title || t("notes.emptyTitle"),
+        const convertedNotes: Note[] = notesData.titles.map((noteTitle, index) => ({
+          id: notesData.ids?.[index] ?? crypto.randomUUID(),
+          title: noteTitle || "",
           content: notesData.contents[index] || "",
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          createdAt: notesData.createdAts?.[index] ?? Date.now(),
+          updatedAt: notesData.updatedAts?.[index] ?? Date.now(),
         }));
 
         setNotes(convertedNotes);
@@ -43,29 +64,35 @@ function App() {
           setTitle(convertedNotes[0].title);
         }
       } catch (error) {
-        console.error(t("error.loadFailed"), error);
+        console.error("Failed to load note data:", error);
       } finally {
         setIsLoading(false);
       }
     };
 
     loadNotes();
-  }, [t]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const buildNotesData = useCallback((notesToSave: Note[]): NotesData => ({
+    ids: notesToSave.map((note) => note.id),
+    titles: notesToSave.map((note) => note.title),
+    contents: notesToSave.map((note) => note.content),
+    createdAts: notesToSave.map((note) => note.createdAt),
+    updatedAts: notesToSave.map((note) => note.updatedAt),
+  }), []);
 
   const saveNotesToStorage = useCallback(async (notesToSave: Note[]) => {
     try {
-      const notesData: NotesData = {
-        titles: notesToSave.map((note) => note.title),
-        contents: notesToSave.map((note) => note.content),
-      };
-
-      await saveNotes(notesData);
+      setSaveStatus("saving");
+      await saveNotes(buildNotesData(notesToSave));
+      setSaveStatus("saved");
     } catch (error) {
-      console.error(t("error.saveFailed"), error);
+      console.error("Failed to save note data:", error);
+      setSaveStatus("error");
     }
-  }, [t]);
+  }, [buildNotesData]);
 
-  // Debounced save to avoid frequent writes
   const debouncedSave = useCallback((notesToSave: Note[]) => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -81,73 +108,159 @@ function App() {
     }
   }, [notes, isLoading, debouncedSave]);
 
-  // Cleanup function to clear pending save on unmount
+  // Flush pending save on unmount
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
+      if (titleSyncTimeoutRef.current) {
+        clearTimeout(titleSyncTimeoutRef.current);
+      }
+      if (notesRef.current.length > 0) {
+        saveNotes(buildNotesData(notesRef.current)).catch(() => {});
+      }
     };
-  }, []);
+  }, [buildNotesData]);
 
-  const createNewNote = () => {
+  // Debounced title sync to notes state
+  useEffect(() => {
+    if (!selectedNote || title === selectedNote.title) return;
+
+    if (titleSyncTimeoutRef.current) {
+      clearTimeout(titleSyncTimeoutRef.current);
+    }
+    titleSyncTimeoutRef.current = setTimeout(() => {
+      setNotes((prevNotes) =>
+        prevNotes.map((note) =>
+          note.id === selectedNote.id
+            ? { ...note, title, updatedAt: Date.now() }
+            : note,
+        ),
+      );
+    }, 300);
+
+    return () => {
+      if (titleSyncTimeoutRef.current) {
+        clearTimeout(titleSyncTimeoutRef.current);
+      }
+    };
+  }, [title, selectedNote]);
+
+  const filteredNotes = useMemo(() => {
+    if (!searchQuery.trim()) return notes;
+    const query = searchQuery.toLowerCase();
+    return notes.filter((note) => {
+      if (note.title.toLowerCase().includes(query)) return true;
+      try {
+        const text = JSON.stringify(JSON.parse(note.content)).toLowerCase();
+        return text.includes(query);
+      } catch {
+        return note.content.toLowerCase().includes(query);
+      }
+    });
+  }, [notes, searchQuery]);
+
+  const createNewNote = useCallback(() => {
+    const now = Date.now();
     const newNote: Note = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       title: t("notes.new"),
       content: "",
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
     };
-    setNotes([newNote, ...notes]);
+    setNotes((prev) => [newNote, ...prev]);
     setSelectedNote(newNote);
     setTitle(newNote.title);
-  };
+    requestAnimationFrame(() => {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    });
+  }, [t]);
 
-  const updateCurrentNote = (content: string) => {
-    if (!selectedNote) return;
+  const updateCurrentNote = useCallback((content: string) => {
+    setSelectedNote((prev) => {
+      if (!prev) return null;
+      const updatedNote = { ...prev, content, updatedAt: Date.now() };
+      setNotes((prevNotes) =>
+        prevNotes.map((note) => note.id === prev.id ? updatedNote : note),
+      );
+      return updatedNote;
+    });
+  }, []);
 
-    const updatedNote = {
-      ...selectedNote,
-      title,
-      content,
-      updatedAt: new Date(),
-    };
+  const requestDeleteNote = useCallback((id: string) => {
+    setDeleteTarget(id);
+  }, []);
 
-    setNotes(
-      notes.map((note) => note.id === selectedNote.id ? updatedNote : note),
-    );
-    setSelectedNote(updatedNote);
-  };
+  const confirmDeleteNote = useCallback(() => {
+    if (!deleteTarget) return;
 
-  const deleteNote = (id: string) => {
-    setNotes(notes.filter((note) => note.id !== id));
-    if (selectedNote?.id === id) {
-      setSelectedNote(null);
-      setTitle("");
+    setNotes((prevNotes) => {
+      const currentIndex = prevNotes.findIndex((n) => n.id === deleteTarget);
+      const remaining = prevNotes.filter((note) => note.id !== deleteTarget);
+
+      setSelectedNote((prevSelected) => {
+        if (prevSelected?.id !== deleteTarget) return prevSelected;
+
+        const nextIndex = Math.min(currentIndex, remaining.length - 1);
+        const nextNote = remaining[nextIndex] ?? null;
+        setTitle(nextNote?.title ?? "");
+
+        if (!nextNote) {
+          requestAnimationFrame(() => createButtonRef.current?.focus());
+        }
+
+        return nextNote;
+      });
+
+      return remaining;
+    });
+
+    setDeleteTarget(null);
+  }, [deleteTarget]);
+
+  const selectNote = useCallback((note: Note) => {
+    // Flush pending title change before switching
+    if (titleSyncTimeoutRef.current) {
+      clearTimeout(titleSyncTimeoutRef.current);
+      titleSyncTimeoutRef.current = null;
     }
-  };
-
-  const selectNote = (note: Note) => {
-    setSelectedNote(note);
+    setSelectedNote((prev) => {
+      if (prev && title !== prev.title) {
+        setNotes((prevNotes) =>
+          prevNotes.map((n) =>
+            n.id === prev.id ? { ...n, title, updatedAt: Date.now() } : n,
+          ),
+        );
+      }
+      return note;
+    });
     setTitle(note.title);
-  };
+  }, [title]);
 
-  const handleEditorChange = (
+  const handleEditorChange = useCallback((
     editorState: SerializedEditorState<SerializedLexicalNode>,
   ) => {
     updateCurrentNote(JSON.stringify(editorState));
-  };
+  }, [updateCurrentNote]);
 
   return (
     <div className="flex flex-col h-screen bg-base-100 text-base-content">
-      <header className="bg-base-200 p-3 flex justify-between items-center">
-        <h1 className="text-xl font-bold text-base-content">
-          {t("title.default")}
-        </h1>
-        <div className="flex gap-2">
+      {/* Prevent any element outside the editor from stealing focus on mousedown */}
+      <header className="bg-base-200 px-2 py-1.5 flex justify-between items-center" onMouseDown={(e) => e.preventDefault()}>
+        <div className="flex items-center gap-1.5">
+          <h1 className="text-sm font-bold text-base-content">
+            {t("title.default")}
+          </h1>
+          <SaveStatus status={saveStatus} />
+        </div>
+        <div className="flex gap-1">
           <button
             type="button"
-            className={`btn btn-sm ${
+            tabIndex={-1}
+            className={`btn btn-xs ${
               isReorderMode ? "btn-secondary" : "btn-ghost"
             }`}
             onClick={() => setIsReorderMode(!isReorderMode)}
@@ -155,8 +268,10 @@ function App() {
             {isReorderMode ? t("notes.done") : t("notes.reorder")}
           </button>
           <button
+            ref={createButtonRef}
             type="button"
-            className="btn btn-sm btn-primary"
+            tabIndex={-1}
+            className="btn btn-xs btn-primary"
             onClick={createNewNote}
           >
             {t("notes.new")}
@@ -167,7 +282,7 @@ function App() {
       <div className="flex flex-col flex-1 overflow-hidden">
         {isLoading
           ? (
-            <div className="flex flex-col items-center justify-center h-full">
+            <div className="flex flex-col items-center justify-center h-full" role="status" aria-live="polite">
               <span className="loading loading-spinner loading-lg text-primary">
               </span>
               <p className="mt-4">{t("notes.loading")}</p>
@@ -175,39 +290,51 @@ function App() {
           )
           : (
             <>
+              <NoteSearch value={searchQuery} onChange={setSearchQuery} />
               <NoteList
-                notes={notes}
+                notes={filteredNotes}
                 selectedNote={selectedNote}
                 onSelectNote={selectNote}
-                onDeleteNote={deleteNote}
+                onDeleteNote={requestDeleteNote}
                 onReorderNotes={(newNotes) => {
                   setNotes(newNotes);
-                  // Note: Don't need to call saveNotesToStorage here since
-                  // the debounced save effect will handle it automatically
                 }}
                 isReorderMode={isReorderMode}
+                emptyMessage={searchQuery ? t("notes.noSearchResults") : undefined}
               />
 
-              <div className="flex-1 flex flex-col p-4 overflow-hidden border-t border-base-content/20">
+              <div className="flex-1 flex flex-col p-2 overflow-hidden border-t border-base-content/20">
                 {selectedNote
                   ? (
                     <div className="flex flex-1 gap-4 overflow-y-auto">
                       <div className="flex-1 flex flex-col">
                         <input
+                          ref={titleInputRef}
                           type="text"
-                          className="input input-bordered w-full mb-2 focus:outline-none focus:border-primary/30"
+                          className="input input-sm input-bordered w-full mb-1.5 focus:outline-none focus:border-primary/30"
                           placeholder={t("notes.titlePlaceholder")}
+                          aria-label={t("notes.titlePlaceholder")}
                           value={title}
-                          onChange={(e) => {
-                            setTitle(e.target.value);
-                            updateCurrentNote(selectedNote.content);
+                          onChange={(e) => setTitle(e.target.value)}
+                          onBlur={() => {
+                            if (selectedNote && title !== selectedNote.title) {
+                              if (titleSyncTimeoutRef.current) {
+                                clearTimeout(titleSyncTimeoutRef.current);
+                                titleSyncTimeoutRef.current = null;
+                              }
+                              const updatedNote = { ...selectedNote, title, updatedAt: Date.now() };
+                              setNotes((prevNotes) =>
+                                prevNotes.map((note) => note.id === selectedNote.id ? updatedNote : note),
+                              );
+                              setSelectedNote(updatedNote);
+                            }
                           }}
                         />
                         <div className="flex-1 flex flex-col rounded-lg overflow-hidden">
                           <RichTextEditor
+                            key={selectedNote.id}
                             onChange={handleEditorChange}
                             initialContent={selectedNote.content}
-                            noteId={selectedNote.id}
                           />
                         </div>
                       </div>
@@ -217,8 +344,9 @@ function App() {
                     <div className="flex flex-col items-center justify-center h-full text-base-content/70">
                       <p className="mb-4">{t("notes.noNotesSelected")}</p>
                       <button
+                        ref={createButtonRef}
                         type="button"
-                        className="btn btn-primary"
+                        className="btn btn-sm btn-primary"
                         onClick={createNewNote}
                       >
                         {t("notes.createNew")}
@@ -229,6 +357,18 @@ function App() {
             </>
           )}
       </div>
+
+      <ConfirmModal
+        isOpen={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDeleteNote}
+        title={t("notes.deleteConfirmTitle")}
+        confirmText={t("notes.deleteConfirm")}
+        cancelText={t("notes.deleteCancel")}
+        confirmVariant="btn-error"
+      >
+        <p>{t("notes.deleteConfirmMessage")}</p>
+      </ConfirmModal>
     </div>
   );
 }
