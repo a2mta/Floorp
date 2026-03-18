@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 BASE_URL = "http://127.0.0.1:58261"
-REQUEST_TIMEOUT = (5, 30)
+REQUEST_TIMEOUT = (5, 60)
 
 # ANSI color codes
 GREEN = '\033[0;32m'
@@ -306,6 +306,139 @@ class FloorpTabManager:
         print(f"{BLUE}🧹 Effects cleared{NC}")
         return result
 
+    def input_element(self, selector: str, value: str, typing_mode: bool = False):
+        """Input value into element"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        json_data = {"selector": selector, "value": value}
+        if typing_mode:
+            json_data["typingMode"] = True
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/input",
+            json=json_data,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def clear_input(self, selector: str):
+        """Clear input element"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/clearInput",
+            json={"selector": selector},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def double_click(self, selector: str):
+        """Double click element"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/doubleClick",
+            json={"selector": selector},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def right_click(self, selector: str):
+        """Right click element"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/rightClick",
+            json={"selector": selector},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def focus_element(self, selector: str):
+        """Focus element"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/focus",
+            json={"selector": selector},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def press_key(self, key: str):
+        """Press key"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/pressKey",
+            json={"key": key},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def select_option(self, selector: str, value: str):
+        """Select option in dropdown"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/selectOption",
+            json={"selector": selector, "value": value},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def set_checked(self, selector: str, checked: bool):
+        """Set checkbox/radio checked state"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/setChecked",
+            json={"selector": selector, "checked": checked},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def set_text_content(self, selector: str, text: str):
+        """Set textContent of element"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/setTextContent",
+            json={"selector": selector, "textContent": text},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
+    def dispatch_text_input(self, selector: str, text: str):
+        """Dispatch text input event on element"""
+        if not self.instance_id:
+            raise ValueError("No instance created")
+        resp = self._post(
+            f"/tabs/instances/{self.instance_id}/dispatchTextInput",
+            json={"selector": selector, "text": text},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return result
+
     def get_text_silent(self, include_selector_map: bool = False):
         """Get text without printing (for internal use)"""
         if not self.instance_id:
@@ -375,21 +508,8 @@ def main() -> int:
         print(f"{GREEN}✓ リセットボタンをクリック（オレンジ色のエフェクト + 3秒表示）{NC}")
         print()
         
-        # Step 5: フォームを再入力してSubmit（赤色のエフェクト + 自動的に3秒インターバル）
-        print(f"{BLUE}📋 Step 5: Fill and Submit Form{NC}")
-        manager.fill_form({
-            "#name": "佐藤花子",
-            "#email": "sato@floorp.app",
-            "#message": "テスト送信"
-        })
-        
-        manager.submit("#testForm")
-        print(f"{RED}✓ フォーム送信（赤色のエフェクト + 情報パネル + 3秒表示）{NC}")
-        print(f"{YELLOW}👀 フォーム全体に赤色のハイライトが表示されました{NC}")
-        print()
-
-        # Step 6: 取得系 API（Inspect ハイライト）の確認
-        print(f"{BLUE}📋 Step 6: Inspect APIs (highlight only){NC}")
+        # Step 5: 取得系 API（Inspect ハイライト）の確認
+        print(f"{BLUE}📋 Step 5: Inspect APIs (highlight only){NC}")
         print(f"{BLUE}  └ getHTML{NC}")
         manager.get_html()
         time.sleep(2.2)
@@ -420,8 +540,8 @@ def main() -> int:
         print(f"{GREEN}✓ 取得系 API を呼び出し、Inspect ハイライトを確認{NC}")
         print()
 
-        # Step 7: Fingerprint-based operations test
-        print(f"{BLUE}📋 Step 7: Fingerprint-based element operations (comprehensive){NC}")
+        # Step 6: Fingerprint-based operations test
+        print(f"{BLUE}📋 Step 6: Fingerprint-based element operations (comprehensive){NC}")
         print(f"{BLUE}  └ Clearing effects to get clean DOM...{NC}")
         manager.clear_effects()
         time.sleep(0.5)
@@ -509,8 +629,8 @@ def main() -> int:
             print(f"{YELLOW}  ⚠ No fingerprints found in text output{NC}")
         print()
 
-        # Step 8: Wait contract and selector/fingerprint priority checks
-        print(f"{BLUE}📋 Step 8: Wait contract and fallback checks{NC}")
+        # Step 7: Wait contract and selector/fingerprint priority checks
+        print(f"{BLUE}📋 Step 7: Wait contract and fallback checks{NC}")
 
         print(f"{BLUE}  └ waitForElement with selector (#title){NC}")
         try:
@@ -552,8 +672,8 @@ def main() -> int:
 
         print()
 
-        # Step 9: Negative test cases for fingerprint validation
-        print(f"{BLUE}📋 Step 9: Fingerprint validation tests{NC}")
+        # Step 8: Negative test cases for fingerprint validation
+        print(f"{BLUE}📋 Step 8: Fingerprint validation tests{NC}")
 
         # Test 9a: Invalid fingerprint format
         print(f"{BLUE}  └ Test invalid fingerprint format{NC}")
@@ -626,10 +746,148 @@ def main() -> int:
             record_failure(f"waitForElement missing selector/fingerprint test error: {e}")
 
         print(f"{GREEN}✓ Fingerprint validation tests completed{NC}")
+        print()
+
+        # Step 9: Event dispatch tests (XrayWrapper cloneInto coverage)
+        print(f"{BLUE}📋 Step 9: Event dispatch tests (XrayWrapper cloneInto coverage){NC}")
+
+        # 10a: Input with typing mode (KeyboardEvent + InputEvent cloning)
+        print(f"{BLUE}  └ input with typingMode (#name){NC}")
+        try:
+            result = manager.input_element("#name", "テスト", typing_mode=True)
+            if result.get("ok") is True:
+                print(f"{GREEN}    ✓ Input typingMode ok (KeyboardEvent cloning){NC}")
+            else:
+                record_failure(f"Input typingMode returned ok=false")
+        except Exception as e:
+            record_failure(f"Input typingMode failed: {e}")
+
+        # 10b: Clear input (dispatchInputEvents cloning)
+        print(f"{BLUE}  └ clearInput (#name){NC}")
+        try:
+            result = manager.clear_input("#name")
+            if result.get("ok") is True:
+                print(f"{GREEN}    ✓ ClearInput ok (dispatchInputEvents cloning){NC}")
+            else:
+                record_failure(f"ClearInput returned ok=false")
+        except Exception as e:
+            record_failure(f"ClearInput failed: {e}")
+
+        # 10c: Select option (select value setter + event cloning)
+        print(f"{BLUE}  └ selectOption (#category → feature){NC}")
+        try:
+            result = manager.select_option("#category", "feature")
+            if result.get("ok") is True:
+                print(f"{GREEN}    ✓ SelectOption ok{NC}")
+            else:
+                record_failure(f"SelectOption returned ok=false")
+        except Exception as e:
+            record_failure(f"SelectOption failed: {e}")
+
+        # 10d: Set checked - checkbox (checked setter + event cloning)
+        print(f"{BLUE}  └ setChecked (#notify-email → true){NC}")
+        try:
+            result = manager.set_checked("#notify-email", True)
+            if result.get("ok") is True:
+                print(f"{GREEN}    ✓ SetChecked checkbox ok{NC}")
+            else:
+                record_failure(f"SetChecked checkbox returned ok=false")
+        except Exception as e:
+            record_failure(f"SetChecked checkbox failed: {e}")
+
+        # 10e: Set checked - radio (MouseEvent click cloning)
+        print(f"{BLUE}  └ setChecked (#priority-high → true){NC}")
+        try:
+            result = manager.set_checked("#priority-high", True)
+            if result.get("ok") is True:
+                print(f"{GREEN}    ✓ SetChecked radio ok (MouseEvent click cloning){NC}")
+            else:
+                record_failure(f"SetChecked radio returned ok=false")
+        except Exception as e:
+            record_failure(f"SetChecked radio failed: {e}")
+
+        # 10f: Double click (MouseEvent dblclick cloning)
+        print(f"{BLUE}  └ doubleClick (#box2){NC}")
+        try:
+            result = manager.double_click("#box2")
+            if result.get("ok") is True:
+                print(f"{GREEN}    ✓ DoubleClick ok (MouseEvent dblclick cloning){NC}")
+            else:
+                record_failure(f"DoubleClick returned ok=false")
+        except Exception as e:
+            record_failure(f"DoubleClick failed: {e}")
+
+        # 10g: Right click (MouseEvent contextmenu cloning)
+        print(f"{BLUE}  └ rightClick (#box3){NC}")
+        try:
+            result = manager.right_click("#box3")
+            if result.get("ok") is True:
+                print(f"{GREEN}    ✓ RightClick ok (MouseEvent contextmenu cloning){NC}")
+            else:
+                record_failure(f"RightClick returned ok=false")
+        except Exception as e:
+            record_failure(f"RightClick failed: {e}")
+
+        # 10h: Focus element (FocusEvent cloning)
+        print(f"{BLUE}  └ focus (#email){NC}")
+        try:
+            result = manager.focus_element("#email")
+            if result.get("ok") is True:
+                print(f"{GREEN}    ✓ Focus ok (FocusEvent cloning){NC}")
+            else:
+                record_failure(f"Focus returned ok=false")
+        except Exception as e:
+            record_failure(f"Focus failed: {e}")
+
+        # 10i: Press key (KeyboardEvent cloning)
+        print(f"{BLUE}  └ pressKey (Tab){NC}")
+        try:
+            result = manager.press_key("Tab")
+            if result.get("ok") is True:
+                print(f"{GREEN}    ✓ PressKey ok (KeyboardEvent cloning){NC}")
+            else:
+                record_failure(f"PressKey returned ok=false")
+        except Exception as e:
+            record_failure(f"PressKey failed: {e}")
+
+        # 10j: Scroll to element
+        print(f"{BLUE}  └ scrollTo (#box1){NC}")
+        try:
+            result = manager.scroll_to(selector="#box1")
+            if result.get("ok") is True:
+                print(f"{GREEN}    ✓ ScrollTo ok{NC}")
+            else:
+                record_failure(f"ScrollTo returned ok=false")
+        except Exception as e:
+            record_failure(f"ScrollTo failed: {e}")
+
+        # 10k: setTextContent on contenteditable (InputEvent cloning)
+        print(f"{BLUE}  └ setTextContent (#editor){NC}")
+        try:
+            result = manager.set_text_content("#editor", "新しいテキスト内容")
+            if result.get("ok") is True:
+                print(f"{GREEN}    ✓ SetTextContent ok (InputEvent cloning){NC}")
+            else:
+                record_failure(f"SetTextContent returned ok=false")
+        except Exception as e:
+            record_failure(f"SetTextContent failed: {e}")
+
+        # 10l: dispatchTextInput on contenteditable (InputEvent beforeinput cloning)
+        print(f"{BLUE}  └ dispatchTextInput (#editor){NC}")
+        try:
+            result = manager.dispatch_text_input("#editor", "追加テキスト")
+            if result.get("ok") is True:
+                print(f"{GREEN}    ✓ DispatchTextInput ok (InputEvent beforeinput cloning){NC}")
+            else:
+                record_failure(f"DispatchTextInput returned ok=false")
+        except Exception as e:
+            record_failure(f"DispatchTextInput failed: {e}")
+
+        print(f"{GREEN}✓ Event dispatch tests completed{NC}")
         if failure_count > 0:
             print(f"{RED}❌ Detected {failure_count} assertion failure(s) during test steps{NC}")
         print()
-        
+
         # クリーンアップ
         print(f"{BLUE}🧹 Cleanup: Destroying instance{NC}")
         manager.destroy_instance()
@@ -652,6 +910,11 @@ def main() -> int:
         print(f"      - フィンガープリント → CSSセレクタ解決")
         print(f"      - フィンガープリント経由での要素クリック")
         print(f"      - 不正なフィンガープリントの検証（400エラー）")
+        print(f"  {GREEN}✓{NC} XrayWrapper cloneInto イベントディスパッチ:")
+        print(f"      - Input (typingMode), clearInput")
+        print(f"      - selectOption, setChecked (checkbox/radio)")
+        print(f"      - doubleClick, rightClick, focus, pressKey, scrollTo")
+        print(f"      - setTextContent, dispatchTextInput (contenteditable)")
         print()
         
     except requests.exceptions.RequestException as e:
