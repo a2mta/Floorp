@@ -4,7 +4,13 @@ import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
+import { useTranslation } from "react-i18next";
+import { useMemo } from "react";
 import { ResizableImage } from "./ResizableImage.tsx";
+import { Toolbar } from "./Toolbar.tsx";
+import { Selection as PmSelection } from "@tiptap/pm/state";
+import { migrateLexicalContent } from "../../lib/migrateLexicalToTiptap.ts";
+import { compressImage } from "../../lib/imageCompressor.ts";
 
 const ResizableImageExtension = Image.extend({
     addAttributes() {
@@ -23,11 +29,6 @@ const ResizableImageExtension = Image.extend({
         return ReactNodeViewRenderer(ResizableImage);
     },
 });
-import { useTranslation } from "react-i18next";
-import { Toolbar } from "./Toolbar.tsx";
-import { migrateLexicalContent } from "../../lib/migrateLexicalToTiptap.ts";
-import { compressImage } from "../../lib/imageCompressor.ts";
-import { useMemo } from "react";
 
 interface RichTextEditorProps {
     onChange: (json: JSONContent) => void;
@@ -122,6 +123,15 @@ export const RichTextEditor = ({ onChange, initialContent }: RichTextEditorProps
                 if (!files?.length) return false;
                 for (const file of Array.from(files)) {
                     if (file.type.startsWith("image/")) {
+                        // Resolve drop position from cursor coordinates
+                        const dropPos = view.posAtCoords({ left: event.clientX, top: event.clientY });
+                        if (dropPos) {
+                            const resolved = view.state.doc.resolve(dropPos.pos);
+                            const tr = view.state.tr.setSelection(
+                                PmSelection.near(resolved),
+                            );
+                            view.dispatch(tr);
+                        }
                         insertCompressedImage(view, file);
                         return true;
                     }

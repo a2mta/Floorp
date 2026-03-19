@@ -6,6 +6,8 @@ export function I18nProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     let mounted = true;
+    let cleanup: (() => void) | undefined;
+
     (async () => {
       try {
         const i18nInstance = await initializeI18n();
@@ -13,10 +15,12 @@ export function I18nProvider({ children }: PropsWithChildren) {
         document.documentElement.lang = i18nInstance.language;
         document.title = i18nInstance.t("title.default");
 
-        i18nInstance.on("languageChanged", (lng: string) => {
+        const handleLanguageChanged = (lng: string) => {
           document.documentElement.lang = lng;
           document.title = i18nInstance.t("title.default");
-        });
+        };
+        i18nInstance.on("languageChanged", handleLanguageChanged);
+        cleanup = () => i18nInstance.off("languageChanged", handleLanguageChanged);
       } catch (e) {
         console.error("[I18nProvider] initialization failed:", e);
       }
@@ -24,6 +28,7 @@ export function I18nProvider({ children }: PropsWithChildren) {
     })();
     return () => {
       mounted = false;
+      cleanup?.();
     };
   }, []);
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 interface ConfirmModalProps {
@@ -29,19 +29,26 @@ export function ConfirmModal({
   const resolvedCancelText = cancelText ?? t("common.cancel");
 
   useEffect(() => {
-    if (isOpen) {
-      dialogRef.current?.showModal();
-    } else {
-      dialogRef.current?.close();
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (isOpen && !dialog.open) {
+      dialog.showModal();
+    } else if (!isOpen && dialog.open) {
+      dialog.close();
     }
   }, [isOpen]);
+
+  // Handle ESC key and backdrop form submit — both fire the native "close" event
+  const handleDialogClose = useCallback(() => {
+    onClose();
+  }, [onClose]);
 
   const handleConfirm = () => {
     onConfirm();
   };
 
   return (
-    <dialog ref={dialogRef} className="modal" onClose={onClose}>
+    <dialog ref={dialogRef} className="modal" onClose={handleDialogClose}>
       <div className="modal-box">
         <h3 className="font-bold text-lg">{title}</h3>
         <div className="py-4">{children}</div>

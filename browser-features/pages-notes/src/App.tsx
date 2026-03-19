@@ -277,7 +277,6 @@ function App() {
         <div className="flex gap-1">
           <button
             type="button"
-            tabIndex={-1}
             className={`btn btn-xs ${
               isReorderMode ? "btn-secondary" : "btn-ghost"
             }`}
@@ -288,7 +287,6 @@ function App() {
           <button
             ref={createButtonRef}
             type="button"
-            tabIndex={-1}
             className="btn btn-xs btn-primary"
             onClick={createNewNote}
           >
