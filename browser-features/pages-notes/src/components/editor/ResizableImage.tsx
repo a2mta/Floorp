@@ -1,8 +1,19 @@
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
+
+const ALLOWED_SRC_PATTERNS = [
+    /^https:\/\//,
+    /^data:image\/(jpeg|png|gif|webp|svg\+xml);/,
+];
+
+function isSafeSrc(src: unknown): boolean {
+    if (typeof src !== "string") return false;
+    return ALLOWED_SRC_PATTERNS.some((pattern) => pattern.test(src));
+}
 
 export function ResizableImage({ node, updateAttributes, selected }: NodeViewProps) {
     const imgRef = useRef<HTMLImageElement>(null);
+    const safeSrc = useMemo(() => (isSafeSrc(node.attrs.src) ? node.attrs.src as string : ""), [node.attrs.src]);
 
     const handleResize = useCallback(
         (e: React.MouseEvent) => {
@@ -22,7 +33,7 @@ export function ResizableImage({ node, updateAttributes, selected }: NodeViewPro
                 document.removeEventListener("mouseup", onMouseUp);
             };
 
-            document.addEventListener("mousemove", onMouseMove);
+            document.addEventListener("mousemove", onMouseMove, { passive: true });
             document.addEventListener("mouseup", onMouseUp);
         },
         [updateAttributes],
@@ -33,7 +44,7 @@ export function ResizableImage({ node, updateAttributes, selected }: NodeViewPro
             <div className="relative inline-block max-w-full">
                 <img
                     ref={imgRef}
-                    src={node.attrs.src}
+                    src={safeSrc}
                     alt={node.attrs.alt || ""}
                     style={node.attrs.width ? { width: `${node.attrs.width}px` } : undefined}
                     className={`block max-w-full h-auto rounded-lg ${selected ? "ring-2 ring-primary/60" : ""}`}

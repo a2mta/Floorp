@@ -52,7 +52,9 @@
         "image": "Insert image"
     },
     "common": {
-        "close": "Close"
+        "close": "Close",
+        "confirm": "Xác nhận",
+        "cancel": "Hủy"
     },
     "save": {
         "saving": "Saving...",

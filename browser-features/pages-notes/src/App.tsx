@@ -8,6 +8,7 @@ import { ConfirmModal } from "./components/common/ConfirmModal.tsx";
 import { SaveStatus } from "./components/common/SaveStatus.tsx";
 import { NoteSearch } from "./components/notes/NoteSearch.tsx";
 import type { Note } from "./types/note.ts";
+import { extractPlainText } from "./lib/extractText.ts";
 
 type SaveStatusType = "idle" | "saving" | "saved" | "error";
 
@@ -24,6 +25,8 @@ function App() {
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesRef = useRef<Note[]>([]);
+  const isSavingRef = useRef(false);
+  const pendingSaveRef = useRef<Note[] | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const createButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -80,6 +83,12 @@ function App() {
   }), []);
 
   const saveNotesToStorage = useCallback(async (notesToSave: Note[]) => {
+    if (isSavingRef.current) {
+      // Queue the latest save request; only the most recent matters
+      pendingSaveRef.current = notesToSave;
+      return;
+    }
+    isSavingRef.current = true;
     try {
       setSaveStatus("saving");
       await saveNotes(buildNotesData(notesToSave));
@@ -87,6 +96,14 @@ function App() {
     } catch (error) {
       console.error("Failed to save note data:", error);
       setSaveStatus("error");
+    } finally {
+      isSavingRef.current = false;
+      // Flush any queued save
+      const pending = pendingSaveRef.current;
+      if (pending) {
+        pendingSaveRef.current = null;
+        saveNotesToStorage(pending);
+      }
     }
   }, [buildNotesData]);
 
@@ -105,9 +122,9 @@ function App() {
     }
   }, [notes, isLoading, debouncedSave]);
 
-  // Flush pending save on unmount
+  // Flush pending save on unmount and beforeunload
   useEffect(() => {
-    return () => {
+    const flushSave = () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
@@ -117,6 +134,12 @@ function App() {
       if (notesRef.current.length > 0) {
         saveNotes(buildNotesData(notesRef.current)).catch(() => {});
       }
+    };
+
+    window.addEventListener("beforeunload", flushSave);
+    return () => {
+      window.removeEventListener("beforeunload", flushSave);
+      flushSave();
     };
   }, [buildNotesData]);
 
@@ -149,12 +172,8 @@ function App() {
     const query = searchQuery.toLowerCase();
     return notes.filter((note) => {
       if (note.title.toLowerCase().includes(query)) return true;
-      try {
-        const text = JSON.stringify(JSON.parse(note.content)).toLowerCase();
-        return text.includes(query);
-      } catch {
-        return note.content.toLowerCase().includes(query);
-      }
+      const text = extractPlainText(note.content).toLowerCase();
+      return text.includes(query);
     });
   }, [notes, searchQuery]);
 
@@ -176,15 +195,19 @@ function App() {
     });
   }, [t]);
 
+  const selectedNoteRef = useRef<Note | null>(null);
+  useEffect(() => {
+    selectedNoteRef.current = selectedNote;
+  }, [selectedNote]);
+
   const updateCurrentNote = useCallback((content: string) => {
-    setSelectedNote((prev) => {
-      if (!prev) return null;
-      const updatedNote = { ...prev, content, updatedAt: Date.now() };
-      setNotes((prevNotes) =>
-        prevNotes.map((note) => note.id === prev.id ? updatedNote : note),
-      );
-      return updatedNote;
-    });
+    const current = selectedNoteRef.current;
+    if (!current) return;
+    const updatedNote = { ...current, content, updatedAt: Date.now() };
+    setSelectedNote(updatedNote);
+    setNotes((prevNotes) =>
+      prevNotes.map((note) => note.id === current.id ? updatedNote : note),
+    );
   }, []);
 
   const requestDeleteNote = useCallback((id: string) => {
@@ -291,8 +314,26 @@ function App() {
                 selectedNote={selectedNote}
                 onSelectNote={selectNote}
                 onDeleteNote={requestDeleteNote}
-                onReorderNotes={(newNotes) => {
-                  setNotes(newNotes);
+                onReorderNotes={(reorderedSubset) => {
+                  setNotes((prevNotes) => {
+                    // Build an id→index map from the reordered subset
+                    const orderMap = new Map(reorderedSubset.map((n, i) => [n.id, i]));
+                    // Separate notes into those in the subset and those not
+                    const inSubset = prevNotes.filter((n) => orderMap.has(n.id));
+                    // Sort the subset according to the new order
+                    inSubset.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
+                    // Rebuild: place reordered items back at their original positions
+                    const result: Note[] = [];
+                    let subIdx = 0;
+                    for (const n of prevNotes) {
+                      if (orderMap.has(n.id)) {
+                        result.push(inSubset[subIdx++]);
+                      } else {
+                        result.push(n);
+                      }
+                    }
+                    return result;
+                  });
                 }}
                 isReorderMode={isReorderMode}
                 emptyMessage={searchQuery ? t("notes.noSearchResults") : undefined}

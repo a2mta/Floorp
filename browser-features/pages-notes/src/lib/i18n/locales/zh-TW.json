@@ -52,7 +52,9 @@
         "image": "插入圖片"
     },
     "common": {
-        "close": "關閉"
+        "close": "關閉",
+        "confirm": "確認",
+        "cancel": "取消"
     },
     "save": {
         "saving": "儲存中...",

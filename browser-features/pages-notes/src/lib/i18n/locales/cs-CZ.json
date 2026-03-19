@@ -52,7 +52,9 @@
         "image": "Insert image"
     },
     "common": {
-        "close": "Close"
+        "close": "Close",
+        "confirm": "Potvrdit",
+        "cancel": "Zrušit"
     },
     "save": {
         "saving": "Saving...",

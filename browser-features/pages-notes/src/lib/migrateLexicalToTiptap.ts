@@ -134,7 +134,11 @@ function convertNode(node: LexicalNode): JSONContent[] {
 }
 
 function convertLexicalToTiptap(lexical: LexicalRoot): JSONContent {
-    const content = lexical.root.children.flatMap(convertNode);
+    const children = lexical.root.children;
+    if (!Array.isArray(children)) {
+        return { type: "doc", content: [{ type: "paragraph" }] };
+    }
+    const content = children.flatMap(convertNode);
     return {
         type: "doc",
         content: content.length > 0 ? content : [{ type: "paragraph" }],

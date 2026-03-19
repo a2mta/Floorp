@@ -52,7 +52,9 @@
         "image": "Insert image"
     },
     "common": {
-        "close": "Close"
+        "close": "Close",
+        "confirm": "Bevestigen",
+        "cancel": "Annuleren"
     },
     "save": {
         "saving": "Saving...",

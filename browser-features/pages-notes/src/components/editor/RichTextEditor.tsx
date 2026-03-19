@@ -43,6 +43,8 @@ function insertCompressedImage(
         if (node) {
             view.dispatch(view.state.tr.replaceSelectionWith(node));
         }
+    }).catch((err) => {
+        console.error("Failed to insert image:", err);
     });
 }
 

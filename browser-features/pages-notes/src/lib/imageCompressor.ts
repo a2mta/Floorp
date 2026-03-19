@@ -1,5 +1,8 @@
 const MAX_WIDTH = 480;
-const QUALITY = 0.7;
+const MAX_HEIGHT = 960;
+const INITIAL_QUALITY = 0.7;
+const MIN_QUALITY = 0.3;
+const MAX_DATA_URL_BYTES = 200 * 1024; // 200KB
 
 export function compressImage(source: File | Blob): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -14,6 +17,10 @@ export function compressImage(source: File | Blob): Promise<string> {
                 height = Math.round((height * MAX_WIDTH) / width);
                 width = MAX_WIDTH;
             }
+            if (height > MAX_HEIGHT) {
+                width = Math.round((width * MAX_HEIGHT) / height);
+                height = MAX_HEIGHT;
+            }
 
             const canvas = document.createElement("canvas");
             canvas.width = width;
@@ -26,7 +33,22 @@ export function compressImage(source: File | Blob): Promise<string> {
             }
 
             ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL("image/jpeg", QUALITY));
+
+            // Re-compress at lower quality if result exceeds size limit
+            let quality = INITIAL_QUALITY;
+            let dataUrl = canvas.toDataURL("image/jpeg", quality);
+
+            while (dataUrl.length > MAX_DATA_URL_BYTES && quality > MIN_QUALITY) {
+                quality -= 0.1;
+                dataUrl = canvas.toDataURL("image/jpeg", quality);
+            }
+
+            if (dataUrl.length > MAX_DATA_URL_BYTES) {
+                reject(new Error("Image too large even after compression"));
+                return;
+            }
+
+            resolve(dataUrl);
         };
 
         img.onerror = () => {

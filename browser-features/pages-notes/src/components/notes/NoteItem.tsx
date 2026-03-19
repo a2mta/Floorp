@@ -13,42 +13,13 @@ interface NoteItemProps {
     isReorderMode: boolean;
 }
 
-interface EditorNode {
-    text?: string;
-    children?: EditorNode[];
-    content?: EditorNode[];
-    [key: string]: unknown;
-}
-
-function extractTextFromNode(node: EditorNode): string {
-    if (node.text !== undefined) {
-        return node.text;
-    }
-    const children = node.children || node.content;
-    if (!children) {
-        return "";
-    }
-    return children.map(extractTextFromNode).join("");
-}
+import { extractPlainText } from "@/lib/extractText.ts";
 
 function extractContent(content: string, emptyLabel: string): string {
     if (!content || content.length === 0) {
         return emptyLabel;
     }
-    try {
-        const parsed = JSON.parse(content);
-        // TipTap format
-        if (parsed.type === "doc") {
-            return extractTextFromNode(parsed) || emptyLabel;
-        }
-        // Lexical format (legacy)
-        if (parsed.root) {
-            return extractTextFromNode(parsed.root) || emptyLabel;
-        }
-        return String(parsed);
-    } catch {
-        return content;
-    }
+    return extractPlainText(content) || emptyLabel;
 }
 
 export const NoteItem = memo(function NoteItem({ note, isSelected, onSelect, onDelete, isReorderMode }: NoteItemProps) {

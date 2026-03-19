@@ -26,6 +26,7 @@ export function NoteSearch({ value, onChange }: NoteSearchProps) {
           type="button"
           className="absolute right-4 top-1/2 -translate-y-1/2 mt-1"
           onClick={() => onChange("")}
+          onMouseDown={(e) => e.stopPropagation()}
           aria-label={t("notes.clearSearch")}
         >
           <X className="h-3 w-3 text-base-content/50" />

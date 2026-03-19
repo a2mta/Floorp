@@ -52,7 +52,9 @@
         "image": "이미지 삽입"
     },
     "common": {
-        "close": "닫기"
+        "close": "닫기",
+        "confirm": "확인",
+        "cancel": "취소"
     },
     "save": {
         "saving": "저장 중...",

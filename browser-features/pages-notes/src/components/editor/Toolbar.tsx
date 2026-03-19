@@ -274,6 +274,8 @@ export const Toolbar = ({ editor }: ToolbarProps) => {
                         if (file && editor) {
                             compressImage(file).then((dataUrl) => {
                                 editor.chain().focus().setImage({ src: dataUrl }).run();
+                            }).catch((err) => {
+                                console.error("Failed to insert image:", err);
                             });
                         }
                         e.target.value = "";

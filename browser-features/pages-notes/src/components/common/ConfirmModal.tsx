@@ -18,12 +18,15 @@ export function ConfirmModal({
   onConfirm,
   title,
   children,
-  confirmText = "Confirm",
-  cancelText = "Cancel",
+  confirmText,
+  cancelText,
   confirmVariant = "btn-primary",
 }: ConfirmModalProps) {
   const { t } = useTranslation();
   const dialogRef = useRef<HTMLDialogElement>(null);
+
+  const resolvedConfirmText = confirmText ?? t("common.confirm");
+  const resolvedCancelText = cancelText ?? t("common.cancel");
 
   useEffect(() => {
     if (isOpen) {
@@ -35,7 +38,6 @@ export function ConfirmModal({
 
   const handleConfirm = () => {
     onConfirm();
-    onClose();
   };
 
   return (
@@ -45,14 +47,14 @@ export function ConfirmModal({
         <div className="py-4">{children}</div>
         <div className="modal-action">
           <button type="button" className="btn btn-ghost" onClick={onClose}>
-            {cancelText}
+            {resolvedCancelText}
           </button>
           <button
             type="button"
             className={`btn ${confirmVariant}`}
             onClick={handleConfirm}
           >
-            {confirmText}
+            {resolvedConfirmText}
           </button>
         </div>
       </div>

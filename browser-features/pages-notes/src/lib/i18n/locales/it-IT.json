@@ -52,7 +52,9 @@
         "image": "Inserisci immagine"
     },
     "common": {
-        "close": "Chiudi"
+        "close": "Chiudi",
+        "confirm": "Conferma",
+        "cancel": "Annulla"
     },
     "save": {
         "saving": "Salvataggio...",
