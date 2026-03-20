@@ -17,9 +17,7 @@ export function initContextMenu(logger: ConsoleInstance): void {
   if (!tabContainer) return;
 
   const onTabContextMenu = (): void => {
-    const separateItem = document?.getElementById(
-      "context_separateSplitView",
-    );
+    const separateItem = document?.getElementById("context_separateSplitView");
     if (!separateItem) return;
 
     const gBrowser = getGBrowser();
@@ -30,8 +28,7 @@ export function initContextMenu(logger: ConsoleInstance): void {
     if (!splitViewEnabled) return;
 
     const activeSplitView = gBrowser?.activeSplitView;
-    const contextTabs: SplitViewTab[] =
-      getTabContextMenu()?.contextTabs ?? [];
+    const contextTabs: SplitViewTab[] = getTabContextMenu()?.contextTabs ?? [];
     const hasSplitViewTab = contextTabs.some(
       (tab: SplitViewTab) => tab.splitview,
     );
@@ -53,14 +50,13 @@ export function initContextMenu(logger: ConsoleInstance): void {
 
     if (shouldShowAddPane) {
       if (!addPaneItem) {
-        addPaneItem = document?.createXULElement("menuitem") ?? null;
+        addPaneItem = document?.createXULElement("menuitem") as XULElement;
         if (addPaneItem) {
           addPaneItem.id = "floorp_addPaneToSplitView";
           addPaneItem.setAttribute("label", "Add Pane to Split View");
           addPaneItem.addEventListener("command", () => {
             const currentGBrowser = getGBrowser();
-            const currentSplitView =
-              currentGBrowser?.activeSplitView;
+            const currentSplitView = currentGBrowser?.activeSplitView;
             const currentContextTabs: SplitViewTab[] =
               getTabContextMenu()?.contextTabs ?? [];
             const nonSplitTabs = currentContextTabs.filter(

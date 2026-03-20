@@ -3,10 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import {
-  splitViewPaneSizes,
-  setSplitViewPaneSizes,
-} from "../data/config.js";
+import { setSplitViewPaneSizes, splitViewPaneSizes } from "../data/config.js";
 import type { SplitViewLayout } from "../data/types.js";
 
 const log = console.createInstance({ prefix: "nora@split-view-splitters" });
@@ -44,14 +41,22 @@ export function insertFlexHandles(
   const tabpanels = getTabpanels();
   if (!tabpanels || panelIds.length < 2) return;
 
-  log.debug(`[insertFlexHandles] orientation=${orientation}, panels=${panelIds.length}, ids=[${panelIds.join(", ")}]`);
+  log.debug(
+    `[insertFlexHandles] orientation=${orientation}, panels=${panelIds.length}, ids=[${
+      panelIds.join(", ")
+    }]`,
+  );
 
   const sizes = splitViewPaneSizes();
   const ratios = normalizeRatios(sizes.flexRatios, panelIds.length);
-  log.debug(`[insertFlexHandles] ratios=[${ratios.map(r => r.toFixed(3)).join(", ")}]`);
+  log.debug(
+    `[insertFlexHandles] ratios=[${
+      ratios.map((r) => r.toFixed(3)).join(", ")
+    }]`,
+  );
 
   for (let i = 0; i < panelIds.length; i++) {
-    const panelEl = document?.getElementById(panelIds[i]);
+    const panelEl = document?.getElementById(panelIds[i]) as HTMLElement | null;
     if (panelEl) {
       panelEl.style.setProperty("flex", `${ratios[i]} 1 0%`);
     } else {
@@ -83,17 +88,25 @@ export function insertGridHandles(panelIds: string[]): void {
   clearSplitHandles();
   const tabpanels = getTabpanels();
   if (!tabpanels || panelIds.length < 4) {
-    log.warn(`[insertGridHandles] skipping: tabpanels=${!!tabpanels}, panels=${panelIds.length}`);
+    log.warn(
+      `[insertGridHandles] skipping: tabpanels=${!!tabpanels}, panels=${panelIds.length}`,
+    );
     return;
   }
 
   const sizes = splitViewPaneSizes();
-  if (!Number.isFinite(sizes.gridColRatio) || !Number.isFinite(sizes.gridRowRatio)) {
-    log.warn(`[insertGridHandles] invalid ratios: col=${sizes.gridColRatio}, row=${sizes.gridRowRatio}`);
+  if (
+    !Number.isFinite(sizes.gridColRatio) || !Number.isFinite(sizes.gridRowRatio)
+  ) {
+    log.warn(
+      `[insertGridHandles] invalid ratios: col=${sizes.gridColRatio}, row=${sizes.gridRowRatio}`,
+    );
     return;
   }
 
-  log.debug(`[insertGridHandles] colRatio=${sizes.gridColRatio}, rowRatio=${sizes.gridRowRatio}`);
+  log.debug(
+    `[insertGridHandles] colRatio=${sizes.gridColRatio}, rowRatio=${sizes.gridRowRatio}`,
+  );
 
   const colPct = (sizes.gridColRatio * 100).toFixed(2);
   const rowPct = (sizes.gridRowRatio * 100).toFixed(2);
@@ -105,8 +118,14 @@ export function insertGridHandles(panelIds: string[]): void {
     "grid-template-rows",
     `${rowPct}% calc(100% - ${rowPct}%)`,
   );
-  (tabpanels as HTMLElement).style.setProperty("--floorp-grid-col-ratio", `${colPct}%`);
-  (tabpanels as HTMLElement).style.setProperty("--floorp-grid-row-ratio", `${rowPct}%`);
+  (tabpanels as HTMLElement).style.setProperty(
+    "--floorp-grid-col-ratio",
+    `${colPct}%`,
+  );
+  (tabpanels as HTMLElement).style.setProperty(
+    "--floorp-grid-row-ratio",
+    `${rowPct}%`,
+  );
 
   const colHandle = document?.createXULElement("box");
   if (colHandle) {
@@ -167,13 +186,21 @@ function onFlexHandleMouseDown(
   const tabpanels = getTabpanels() as HTMLElement | null;
   if (!tabpanels) return;
 
-  log.debug(`[flexDrag:start] handleIndex=${handleIndex}, orientation=${orientation}`);
+  log.debug(
+    `[flexDrag:start] handleIndex=${handleIndex}, orientation=${orientation}`,
+  );
   tabpanels.setAttribute("data-floorp-dragging", "true");
 
-  const panelBefore = document?.getElementById(panelIds[handleIndex]) as HTMLElement | null;
-  const panelAfter = document?.getElementById(panelIds[handleIndex + 1]) as HTMLElement | null;
+  const panelBefore = document?.getElementById(panelIds[handleIndex]) as
+    | HTMLElement
+    | null;
+  const panelAfter = document?.getElementById(panelIds[handleIndex + 1]) as
+    | HTMLElement
+    | null;
   if (!panelBefore || !panelAfter) {
-    log.warn(`[flexDrag:start] panel element not found: before=${!!panelBefore}, after=${!!panelAfter}`);
+    log.warn(
+      `[flexDrag:start] panel element not found: before=${!!panelBefore}, after=${!!panelAfter}`,
+    );
     return;
   }
 
@@ -201,7 +228,10 @@ function onFlexHandleMouseDown(
   const onMouseMove = (e: MouseEvent) => {
     const currentPos = isHorizontal ? e.clientX : e.clientY;
     const delta = currentPos - startPos;
-    const newBefore = Math.max(minPaneSize, Math.min(startBefore + delta, totalSize - minPaneSize));
+    const newBefore = Math.max(
+      minPaneSize,
+      Math.min(startBefore + delta, totalSize - minPaneSize),
+    );
     const newAfter = totalSize - newBefore;
     pendingBefore = newBefore;
     pendingAfter = newAfter;
@@ -234,7 +264,11 @@ function onFlexHandleMouseDown(
       }
     }
     const normalizedRatios = normalizeRatios(ratios, panelIds.length);
-    log.debug(`[flexDrag:end] ratios=[${normalizedRatios.map(r => r.toFixed(3)).join(", ")}]`);
+    log.debug(
+      `[flexDrag:end] ratios=[${
+        normalizedRatios.map((r) => r.toFixed(3)).join(", ")
+      }]`,
+    );
     setSplitViewPaneSizes((prev) => ({
       ...prev,
       flexRatios: normalizedRatios,
@@ -310,8 +344,7 @@ function createGridDragHandler(
 
     const onMouseMove = (ev: MouseEvent) => {
       for (const axis of axes) {
-        const ratio =
-          (ev[axis.mouseProperty] - tabpanelsRect[axis.rectStart]) /
+        const ratio = (ev[axis.mouseProperty] - tabpanelsRect[axis.rectStart]) /
           tabpanelsRect[axis.rectSize];
         pending[axis.sizeKey] = Math.max(0.15, Math.min(0.85, ratio));
       }
@@ -332,7 +365,11 @@ function createGridDragHandler(
       applyFrame();
       cleanup();
       log.debug(
-        `[gridDrag:${label}:end] ${axes.map((a) => `${a.sizeKey}=${pending[a.sizeKey].toFixed(3)}`).join(", ")}`,
+        `[gridDrag:${label}:end] ${
+          axes.map((a) => `${a.sizeKey}=${pending[a.sizeKey].toFixed(3)}`).join(
+            ", ",
+          )
+        }`,
       );
       setSplitViewPaneSizes((prev) => {
         const updated = { ...prev };
@@ -360,7 +397,9 @@ const onGridCenterHandleMouseDown = createGridDragHandler([COL_AXIS, ROW_AXIS]);
 function normalizeRatios(ratios: number[], count: number): number[] {
   if (count <= 0) return [];
   if (ratios.length === count) {
-    const validRatios = ratios.map((r) => (Number.isFinite(r) && r >= 0 ? r : 0));
+    const validRatios = ratios.map((
+      r,
+    ) => (Number.isFinite(r) && r >= 0 ? r : 0));
     const sum = validRatios.reduce((a, b) => a + b, 0);
     if (sum > 0) return validRatios.map((r) => r / sum);
   }

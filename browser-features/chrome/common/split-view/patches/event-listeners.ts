@@ -4,7 +4,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { onCleanup } from "solid-js";
-import type { SplitViewLayout } from "../data/types.js";
 import { getGBrowser } from "../data/types.js";
 import { splitViewConfig } from "../data/config.js";
 import { applyLayoutAttribute } from "../layout.js";

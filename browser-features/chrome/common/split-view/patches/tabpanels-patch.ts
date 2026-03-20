@@ -8,7 +8,6 @@ import { getGBrowser } from "../data/types.js";
 import { splitViewConfig } from "../data/config.js";
 import {
   clearSplitHandles,
-  updateHandles,
 } from "../components/split-view-splitters.js";
 import { clearGridStyles } from "../layout.js";
 import type { PatchState } from "./patch-state.js";
