@@ -13,6 +13,7 @@ export interface SplitViewTab {
   linkedPanel: string;
   splitview: XULElement | null;
   selected: boolean;
+  label: string;
 }
 
 /** The tab-split-view-wrapper custom element. */

@@ -23,6 +23,7 @@ import { patchTabpanels } from "./patches/tabpanels-patch.js";
 import { patchSplitViewWrapper } from "./patches/wrapper-patch.js";
 import { initContextMenu } from "./patches/context-menu.js";
 import { initSplitViewEvents } from "./patches/event-listeners.js";
+import { initActivePaneTracker } from "./patches/active-pane-tracker.js";
 import {
   applyLayout,
   applyLayoutAttribute,
@@ -63,6 +64,7 @@ export class SplitViewManager {
     initLayoutPicker();
     initToolbarButtonEnhancement();
     initSplitViewEvents(this.logger);
+    initActivePaneTracker(this.logger);
 
     // React to layout config changes
     createEffect(() => {
@@ -85,8 +87,9 @@ export class SplitViewManager {
     destroyLayoutPicker();
     destroyToolbarButtonEnhancement();
 
-    // Remove dynamically created context menu item
+    // Remove dynamically created context menu items
     document?.getElementById("floorp_addPaneToSplitView")?.remove();
+    document?.getElementById("floorp_moveTabToPane")?.remove();
   }
 
   // ===== Style injection =====

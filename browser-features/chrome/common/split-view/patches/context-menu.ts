@@ -10,25 +10,29 @@ import type { SplitViewTab } from "../data/types.js";
 import { getGBrowser, getTabContextMenu } from "../data/types.js";
 import { splitViewConfig } from "../data/config.js";
 
-const t = (key: string): string =>
-  (i18next.t as (k: string) => string)(key);
+const t = (key: string, opts?: Record<string, string>): string =>
+  (i18next.t as (k: string, o?: Record<string, string>) => string)(key, opts);
 
 /**
- * Adds an "Add Pane to Split View" item to the tab context menu
- * when a split view is active and hasn't reached maxPanes.
+ * Adds "Add Pane to Split View" and "Move to Pane" items to the tab
+ * context menu when a split view is active.
  */
 export function initContextMenu(logger: ConsoleInstance): void {
   const tabContainer = getGBrowser()?.tabContainer;
   if (!tabContainer) return;
 
-  const updateAddPaneLabel = (): void => {
+  const updateLabels = (): void => {
     const addPaneItem = document?.getElementById("floorp_addPaneToSplitView");
     if (addPaneItem) {
       addPaneItem.setAttribute("label", t("splitView.contextMenu.addPane"));
     }
+    const moveMenu = document?.getElementById("floorp_moveTabToPane");
+    if (moveMenu) {
+      moveMenu.setAttribute("label", t("splitView.contextMenu.moveToPane"));
+    }
   };
 
-  addI18nObserver(updateAddPaneLabel);
+  addI18nObserver(updateLabels);
 
   const onTabContextMenu = (): void => {
     const separateItem = document?.getElementById("context_separateSplitView");
@@ -53,6 +57,7 @@ export function initContextMenu(logger: ConsoleInstance): void {
         `activeTabs=${activeSplitView?.tabs?.length ?? 0}`,
     );
 
+    // === Add Pane to Split View ===
     const shouldShowAddPane =
       hasSplitViewTab &&
       activeSplitView &&
@@ -77,7 +82,7 @@ export function initContextMenu(logger: ConsoleInstance): void {
             const currentContextTabs: SplitViewTab[] =
               getTabContextMenu()?.contextTabs ?? [];
             const nonSplitTabs = currentContextTabs.filter(
-              (t: SplitViewTab) => !t.splitview,
+              (tab: SplitViewTab) => !tab.splitview,
             );
             logger.debug(
               `[contextMenu:command] adding ${nonSplitTabs.length} tab(s) to split view`,
@@ -95,6 +100,56 @@ export function initContextMenu(logger: ConsoleInstance): void {
     } else if (addPaneItem) {
       addPaneItem.hidden = true;
     }
+
+    // === Move to Pane submenu ===
+    const shouldShowMoveToPane =
+      hasSplitViewTab &&
+      activeSplitView &&
+      activeSplitView.tabs.length >= 2;
+
+    let moveMenu = document?.getElementById(
+      "floorp_moveTabToPane",
+    ) as XULElement | null;
+
+    if (shouldShowMoveToPane) {
+      if (!moveMenu) {
+        moveMenu = document?.createXULElement("menu") as XULElement;
+        if (moveMenu) {
+          moveMenu.id = "floorp_moveTabToPane";
+          moveMenu.setAttribute(
+            "label",
+            t("splitView.contextMenu.moveToPane"),
+          );
+
+          const popup = document?.createXULElement(
+            "menupopup",
+          ) as XULElement;
+          if (popup) {
+            popup.id = "floorp_moveTabToPanePopup";
+            popup.addEventListener("popupshowing", () => {
+              onMoveToPanePopupShowing(logger);
+            });
+            moveMenu.appendChild(popup);
+          }
+
+          // Insert after addPaneItem if visible, otherwise after separateItem
+          const insertAfter =
+            addPaneItem && !addPaneItem.hidden
+              ? addPaneItem
+              : separateItem;
+          insertAfter.after(moveMenu);
+        }
+      }
+      if (moveMenu) {
+        moveMenu.hidden = false;
+        moveMenu.setAttribute(
+          "label",
+          t("splitView.contextMenu.moveToPane"),
+        );
+      }
+    } else if (moveMenu) {
+      moveMenu.hidden = true;
+    }
   };
 
   tabContainer.addEventListener("contextmenu", onTabContextMenu);
@@ -102,4 +157,113 @@ export function initContextMenu(logger: ConsoleInstance): void {
     tabContainer.removeEventListener("contextmenu", onTabContextMenu);
   });
   logger.debug("[patch] context menu listener attached");
+}
+
+// ===== Move to Pane helpers =====
+
+function onMoveToPanePopupShowing(logger: ConsoleInstance): void {
+  const popup = document?.getElementById("floorp_moveTabToPanePopup");
+  if (!popup) return;
+
+  // Clear previous items
+  while (popup.lastChild) {
+    popup.removeChild(popup.lastChild);
+  }
+
+  const gBrowser = getGBrowser();
+  const activeSplitView = gBrowser?.activeSplitView;
+  if (!activeSplitView) return;
+
+  const contextTabs: SplitViewTab[] =
+    getTabContextMenu()?.contextTabs ?? [];
+  const contextTab = contextTabs[0];
+  if (!contextTab) return;
+
+  const splitTabs = activeSplitView.tabs;
+  const currentIndex = splitTabs.indexOf(
+    contextTab as SplitViewTab,
+  );
+  if (currentIndex === -1) return;
+
+  for (let i = 0; i < splitTabs.length; i++) {
+    if (i === currentIndex) continue;
+
+    const targetTab = splitTabs[i];
+    const tabTitle = truncateTitle(
+      targetTab.label || `Tab ${i + 1}`,
+      30,
+    );
+
+    const item = document?.createXULElement("menuitem") as XULElement;
+    if (!item) continue;
+
+    item.setAttribute(
+      "label",
+      t("splitView.contextMenu.moveToPaneN", {
+        n: String(i + 1),
+        title: tabTitle,
+      }),
+    );
+    // Capture tab references (not indices) to avoid stale closure issues
+    // if tabs are reordered between popup showing and command execution.
+    const fromTab = contextTab;
+    const toTab = targetTab;
+    item.addEventListener("command", () => {
+      swapPanesByTab(logger, fromTab, toTab);
+    });
+    popup.appendChild(item);
+  }
+}
+
+function truncateTitle(title: string, maxLen: number): string {
+  return title.length > maxLen
+    ? `${title.substring(0, maxLen - 1)}\u2026`
+    : title;
+}
+
+/**
+ * Swap two panes by tab reference, resolving indices at execution time
+ * to avoid stale closures. Uses the same moveTabBefore + showSplitViewPanels
+ * pattern as wrapper-patch.ts reverseTabs.
+ */
+function swapPanesByTab(
+  logger: ConsoleInstance,
+  fromTab: SplitViewTab,
+  toTab: SplitViewTab,
+): void {
+  const gBrowser = getGBrowser();
+  const activeSplitView = gBrowser?.activeSplitView;
+  if (!activeSplitView || !gBrowser) return;
+
+  const tabs = activeSplitView.tabs;
+  const fromIndex = tabs.indexOf(fromTab);
+  const toIndex = tabs.indexOf(toTab);
+
+  if (fromIndex === -1 || toIndex === -1) {
+    logger.warn(
+      `[contextMenu:swapPanes] tab(s) no longer in split view: from=${fromIndex}, to=${toIndex}`,
+    );
+    return;
+  }
+
+  logger.debug(
+    `[contextMenu:swapPanes] swapping pane ${fromIndex} <-> ${toIndex}`,
+  );
+
+  // Build the desired order with the two tabs swapped
+  const reordered = [...tabs];
+  [reordered[fromIndex], reordered[toIndex]] = [
+    reordered[toIndex],
+    reordered[fromIndex],
+  ];
+
+  // Reorder tabs in the DOM using the anchor technique from wrapper-patch.ts
+  const anchor = reordered[0];
+  for (let i = reordered.length - 1; i >= 0; i--) {
+    if (reordered[i] !== anchor) {
+      gBrowser.moveTabBefore(reordered[i], anchor);
+    }
+  }
+
+  gBrowser.showSplitViewPanels(activeSplitView.tabs);
 }

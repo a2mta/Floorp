@@ -373,7 +373,9 @@
   },
   "splitView": {
     "contextMenu": {
-      "addPane": "分割ビューにペインを追加"
+      "addPane": "分割ビューにペインを追加",
+      "moveToPane": "ペインに移動",
+      "moveToPaneN": "ペイン {{n}} ({{title}})"
     },
     "layoutPicker": {
       "horizontal": "水平分割",

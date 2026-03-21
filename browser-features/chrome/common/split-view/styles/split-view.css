@@ -289,3 +289,18 @@
 #tabbrowser-tabpanels[data-floorp-dragging] browser {
   pointer-events: none !important;
 }
+
+/* ===== Active pane highlight =====
+ * Highlights the pane whose tab is currently selected (gBrowser.selectedTab).
+ * Uses inset box-shadow to avoid affecting layout (unlike border) and to
+ * stay within the pane bounds (unlike outline, which can be clipped in grid).
+ * Transition is on the base rule so removal also animates smoothly.
+ */
+#tabbrowser-tabpanels[splitview][data-floorp-split] > .split-view-panel {
+  transition: box-shadow 150ms ease;
+}
+
+#tabbrowser-tabpanels[splitview][data-floorp-split] > .split-view-panel[data-floorp-active-pane] {
+  box-shadow: inset 0 0 0 2px var(--focus-outline-color);
+  border-radius: 2px;
+}

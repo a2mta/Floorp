@@ -191,6 +191,13 @@ export function patchTabpanels(
           for (const el of staleActives) {
             el.classList.remove("split-view-panel-active");
           }
+          // Clean up active pane indicator
+          const staleActivePanes = this.querySelectorAll(
+            "[data-floorp-active-pane]",
+          );
+          for (const el of staleActivePanes) {
+            el.removeAttribute("data-floorp-active-pane");
+          }
           // Reset panel cache so next activation re-applies layout
           state.lastPanelIds = "";
           // Only remove multibar if we were the ones who set it

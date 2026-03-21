@@ -373,7 +373,9 @@
   },
   "splitView": {
     "contextMenu": {
-      "addPane": "Add Pane to Split View"
+      "addPane": "Add Pane to Split View",
+      "moveToPane": "Move to Pane",
+      "moveToPaneN": "Pane {{n}} ({{title}})"
     },
     "layoutPicker": {
       "horizontal": "Horizontal Split",
