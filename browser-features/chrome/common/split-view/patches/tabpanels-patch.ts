@@ -68,6 +68,22 @@ export function patchTabpanels(
           );
         }
 
+        // Grid cell placement follows `column="0"`…`"3"`. After tab reorder,
+        // keep attributes aligned with splitViewPanels order.
+        if (
+          newPanels.length === 4 &&
+          (this as Element).getAttribute("split-view-layout") === "grid-2x2"
+        ) {
+          const root = this as HTMLElement;
+          for (let i = 0; i < 4; i++) {
+            const id = newPanels[i]!;
+            const child = root.querySelector(`#${CSS.escape(id)}`);
+            if (child) {
+              child.setAttribute("column", String(i));
+            }
+          }
+        }
+
         // Ensure ALL split-view panels have split-view-panel-active class.
         // Also clean up stale classes from panels NOT in the current split view.
         const currentPanelSet = new Set(newPanels);
@@ -98,12 +114,18 @@ export function patchTabpanels(
 
         // Re-entrancy guard
         if (state.inSplitViewPanelsSet) {
+          logger.warn(
+            `[patch:splitViewPanels.set] skipped (re-entrant); incoming=[${newPanels.join(", ")}]`,
+          );
           return;
         }
 
         // Skip if panels haven't changed
         const panelKey = newPanels.join(",");
         if (panelKey === state.lastPanelIds) {
+          logger.debug(
+            `[patch:splitViewPanels.set] skip unchanged panelKey=[${panelKey}]`,
+          );
           return;
         }
 
@@ -223,6 +245,10 @@ export function patchTabpanels(
       gBrowser.showSplitViewPanels.bind(gBrowser);
     gBrowser.showSplitViewPanels = (tabs: SplitViewTab[]) => {
       if (state.inShowSplitViewPanels) {
+        logger.warn(
+          `[patch:showSplitViewPanels] skipped (re-entrant); argTabs=${tabs.length} ` +
+            `linkedPanels=[${tabs.map((t) => t?.linkedPanel ?? "?").join(", ")}]`,
+        );
         return;
       }
 
@@ -235,8 +261,17 @@ export function patchTabpanels(
           `[patch:showSplitViewPanels] filtered out ${invalidCount} tab(s) with null linkedBrowser`,
         );
       }
+      const inputDetail = tabs
+        .map((t, i) => `[${i}]=${t?.linkedPanel ?? "null"}:${t?.label?.slice(0, 24) ?? ""}`)
+        .join(" ");
       logger.debug(
-        `[patch:showSplitViewPanels] validTabs=${validTabs.length}/${tabs.length}`,
+        `[patch:showSplitViewPanels] validTabs=${validTabs.length}/${tabs.length} input: ${inputDetail}`,
+      );
+      const validDetail = validTabs
+        .map((t, i) => `[${i}]=${t.linkedPanel}`)
+        .join(" ");
+      logger.debug(
+        `[patch:showSplitViewPanels] validTabs order: ${validDetail}`,
       );
       if (validTabs.length < 2) {
         logger.warn(
@@ -248,6 +283,16 @@ export function patchTabpanels(
       state.inShowSplitViewPanels = true;
       try {
         origShowSplitViewPanels!(validTabs);
+        try {
+          const ids = tabpanels.splitViewPanels;
+          logger.debug(
+            `[patch:showSplitViewPanels:afterNative] tabpanels.splitViewPanels=[${ids?.join(", ") ?? "undefined"}]`,
+          );
+        } catch (readErr) {
+          logger.debug(
+            `[patch:showSplitViewPanels:afterNative] could not read splitViewPanels: ${readErr}`,
+          );
+        }
       } catch (e) {
         logger.error(
           `[patch:showSplitViewPanels] original threw: ${e}`,

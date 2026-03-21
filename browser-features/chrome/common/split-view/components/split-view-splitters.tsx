@@ -8,6 +8,48 @@ import type { SplitViewLayout } from "../data/types.js";
 
 const log = console.createInstance({ prefix: "nora@split-view-splitters" });
 
+/**
+ * Validate that split-view panel elements exist; keep `panelIds` as the single
+ * source of truth for handle placement. Sorting by getBoundingClientRect()
+ * was undoing intentional pane swaps (visual order lagged tab order briefly).
+ */
+function orderFlexPanelIdsToLayout(
+  tabpanels: Element,
+  panelIds: string[],
+): string[] {
+  const idSet = new Set(panelIds);
+  let found = 0;
+  for (const child of tabpanels.children) {
+    if (
+      child.classList?.contains("split-view-panel") &&
+      idSet.has(child.id)
+    ) {
+      found++;
+    }
+  }
+  if (found !== panelIds.length) {
+    log.warn(
+      `[orderFlexPanelIdsToLayout] expected ${panelIds.length} split-view-panel(s), ` +
+        `found ${found}; keeping upstream panelIds order`,
+    );
+  }
+  return panelIds;
+}
+
+/** Preserve each pane's flex weight when reordering ids to DOM/visual order. */
+function remapFlexRatiosToOrder(
+  originalIds: string[],
+  orderedIds: string[],
+  ratiosForOriginal: number[],
+): number[] {
+  const byId = new Map<string, number>();
+  for (let i = 0; i < originalIds.length; i++) {
+    byId.set(originalIds[i]!, ratiosForOriginal[i]!);
+  }
+  const fallback = 1 / orderedIds.length;
+  return orderedIds.map((id) => byId.get(id) ?? fallback);
+}
+
 // Track active drag cleanup so clearSplitHandles can abort in-progress drags
 let activeDragCleanup: (() => void) | null = null;
 
@@ -31,6 +73,13 @@ export function clearSplitHandles(): void {
   for (const handle of handles) {
     handle.remove();
   }
+  // Flex visual order follows DOM children; `splitViewPanels` order can differ.
+  // Strip stale `order` before flex/grid re-layout.
+  for (const child of tabpanels.children) {
+    if (child.classList?.contains("split-view-panel")) {
+      (child as HTMLElement).style.removeProperty("order");
+    }
+  }
 }
 
 export function insertFlexHandles(
@@ -41,31 +90,44 @@ export function insertFlexHandles(
   const tabpanels = getTabpanels();
   if (!tabpanels || panelIds.length < 2) return;
 
+  const upstreamIds = [...panelIds];
+  const orderedIds = orderFlexPanelIdsToLayout(tabpanels, panelIds);
+  if (orderedIds.join(",") !== upstreamIds.join(",")) {
+    log.debug(
+      `[insertFlexHandles] reordered for DOM/visual layout: upstream=[${upstreamIds.join(", ")}] ` +
+        `ordered=[${orderedIds.join(", ")}]`,
+    );
+  }
+
   log.debug(
-    `[insertFlexHandles] orientation=${orientation}, panels=${panelIds.length}, ids=[${
-      panelIds.join(", ")
-    }]`,
+    `[insertFlexHandles] orientation=${orientation}, panels=${orderedIds.length}, ids=[${orderedIds.join(", ")}]`,
   );
 
   const sizes = splitViewPaneSizes();
-  const ratios = normalizeRatios(sizes.flexRatios, panelIds.length);
+  const baseRatios = normalizeRatios(sizes.flexRatios, upstreamIds.length);
+  const ratios = normalizeRatios(
+    remapFlexRatiosToOrder(upstreamIds, orderedIds, baseRatios),
+    orderedIds.length,
+  );
   log.debug(
-    `[insertFlexHandles] ratios=[${
-      ratios.map((r) => r.toFixed(3)).join(", ")
-    }]`,
+    `[insertFlexHandles] ratios=[${ratios.map((r) => r.toFixed(3)).join(", ")}]`,
   );
 
-  for (let i = 0; i < panelIds.length; i++) {
-    const panelEl = document?.getElementById(panelIds[i]) as HTMLElement | null;
+  for (let i = 0; i < orderedIds.length; i++) {
+    const panelEl = document?.getElementById(orderedIds[i]!) as
+      | HTMLElement
+      | null;
     if (panelEl) {
       panelEl.style.setProperty("flex", `${ratios[i]} 1 0%`);
+      // DOM order of tabpanels children can stay creation order; match tabs.
+      panelEl.style.setProperty("order", String(2 * i));
     } else {
-      log.warn(`[insertFlexHandles] panel element not found: ${panelIds[i]}`);
+      log.warn(`[insertFlexHandles] panel element not found: ${orderedIds[i]}`);
     }
   }
 
-  for (let i = 0; i < panelIds.length - 1; i++) {
-    const panelEl = document?.getElementById(panelIds[i]);
+  for (let i = 0; i < orderedIds.length - 1; i++) {
+    const panelEl = document?.getElementById(orderedIds[i]!);
     if (!panelEl) continue;
 
     const handle = document?.createXULElement("box");
@@ -74,14 +136,15 @@ export function insertFlexHandles(
     handle.className = "floorp-split-handle";
     handle.setAttribute("data-orientation", orientation);
     handle.setAttribute("data-index", String(i));
+    (handle as HTMLElement).style.setProperty("order", String(2 * i + 1));
 
     handle.addEventListener("mousedown", (e: Event) => {
-      onFlexHandleMouseDown(e as MouseEvent, i, panelIds, orientation);
+      onFlexHandleMouseDown(e as MouseEvent, i, orderedIds, orientation);
     });
 
     panelEl.after(handle);
   }
-  log.debug(`[insertFlexHandles] inserted ${panelIds.length - 1} handle(s)`);
+  log.debug(`[insertFlexHandles] inserted ${orderedIds.length - 1} handle(s)`);
 }
 
 export function insertGridHandles(panelIds: string[]): void {
@@ -164,7 +227,9 @@ export function updateHandles(
   panelIds: string[],
   layout: SplitViewLayout,
 ): void {
-  log.debug(`[updateHandles] layout=${layout}, panels=${panelIds.length}`);
+  log.debug(
+    `[updateHandles] layout=${layout}, panels=${panelIds.length}, ids=[${panelIds.join(", ")}]`,
+  );
   if (layout === "grid-2x2" && panelIds.length === 4) {
     insertGridHandles(panelIds);
   } else if (layout === "vertical") {

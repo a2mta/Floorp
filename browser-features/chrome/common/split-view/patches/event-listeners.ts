@@ -8,6 +8,7 @@ import { getGBrowser } from "../data/types.js";
 import { splitViewConfig } from "../data/config.js";
 import { applyLayoutAttribute } from "../layout.js";
 import { updateHandles } from "../components/split-view-splitters.js";
+import { updatePaneDragGrips } from "../components/split-view-pane-drag.js";
 
 /**
  * Listens for TabSplitViewActivate/Deactivate events and re-applies
@@ -66,11 +67,13 @@ export function initSplitViewEvents(
       );
       applyLayoutAttribute(logger, layout, panels.length);
       updateHandles(panels, layout);
+      updatePaneDragGrips(logger, panels);
     });
   };
 
   const onSplitViewDeactivate = (): void => {
     logger.debug("[onSplitViewDeactivate] clearing layout state");
+    updatePaneDragGrips(logger, []);
   };
 
   tabContainer.addEventListener(

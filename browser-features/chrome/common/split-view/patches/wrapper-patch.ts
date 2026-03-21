@@ -5,6 +5,7 @@
 
 import type { SplitViewWrapper } from "../data/types.js";
 import { getGBrowser } from "../data/types.js";
+import { reorderSplitTabsForDesiredOrder } from "../utils/reorder-panes.js";
 
 export interface WrapperPatchResult {
   unpatch(): void;
@@ -40,14 +41,9 @@ export function patchSplitViewWrapper(
 
       const gBrowser = getGBrowser();
       if (!gBrowser) return;
-      const anchor = tabs[0];
       const reversed = [...tabs].reverse();
-      for (const tab of reversed) {
-        if (tab !== anchor) {
-          gBrowser.moveTabBefore(tab, anchor);
-        }
-      }
-      gBrowser.showSplitViewPanels(this.tabs);
+      reorderSplitTabsForDesiredOrder(gBrowser, reversed);
+      gBrowser.showSplitViewPanels(reversed);
     },
     configurable: true,
     writable: true,

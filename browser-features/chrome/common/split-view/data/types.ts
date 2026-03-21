@@ -33,10 +33,12 @@ export interface MozTabpanels extends XULElement {
 export interface SplitViewGBrowser {
   tabpanels: MozTabpanels | null;
   tabContainer: XULElement | null;
+  /** All tabs in this window, in visual order. */
+  tabs: SplitViewTab[];
   selectedTab: SplitViewTab;
   activeSplitView: SplitViewWrapper | null;
   showSplitViewPanels(tabs: SplitViewTab[]): void;
-  moveTabBefore(tab: SplitViewTab, beforeTab: SplitViewTab): void;
+  moveTabBefore(tab: SplitViewTab, beforeTab: SplitViewTab | null): void;
   moveTabToSplitView(
     tab: SplitViewTab,
     wrapper: SplitViewWrapper | null,
@@ -94,3 +96,8 @@ export const DEFAULT_PANE_SIZES: SplitViewPaneSizes = {
 
 export const PREF_SPLIT_VIEW_CONFIG = "floorp.splitView.config";
 export const PREF_SPLIT_VIEW_PANE_SIZES = "floorp.splitView.paneSizes";
+/** JSON: { groups: { groupId: string; layout: SplitViewLayout }[] } — per-group layout for future multi-split. */
+export const PREF_SPLIT_VIEW_SESSION_STATE = "floorp.splitView.sessionState";
+
+/** Session-persisted DOM attribute: tabs sharing one split view use the same value. */
+export const SPLIT_VIEW_GROUP_ATTRIBUTE = "floorpSplitViewGroupId";

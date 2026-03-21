@@ -24,10 +24,17 @@ import { patchSplitViewWrapper } from "./patches/wrapper-patch.js";
 import { initContextMenu } from "./patches/context-menu.js";
 import { initSplitViewEvents } from "./patches/event-listeners.js";
 import { initActivePaneTracker } from "./patches/active-pane-tracker.js";
+import { initSessionRestore } from "./patches/session-restore.js";
+import {
+  destroyPaneDrag,
+  initPaneDrag,
+  updatePaneDragGrips,
+} from "./components/split-view-pane-drag.js";
 import {
   applyLayout,
   applyLayoutAttribute,
 } from "./layout.js";
+import type { SplitViewLayout } from "./data/types.js";
 
 /**
  * SplitViewManager orchestrates monkey-patching of Firefox's built-in
@@ -52,9 +59,10 @@ export class SplitViewManager {
     this.tabpanelsPatch = patchTabpanels(
       this.logger,
       this.patchState,
-      (panelIds, layout) => {
+      (panelIds: string[], layout: SplitViewLayout) => {
         applyLayoutAttribute(this.logger, layout, panelIds.length);
         updateHandles(panelIds, layout);
+        updatePaneDragGrips(this.logger, panelIds);
       },
     );
 
@@ -65,6 +73,8 @@ export class SplitViewManager {
     initToolbarButtonEnhancement();
     initSplitViewEvents(this.logger);
     initActivePaneTracker(this.logger);
+    initSessionRestore(this.logger);
+    initPaneDrag(this.logger);
 
     // React to layout config changes
     createEffect(() => {
@@ -83,6 +93,7 @@ export class SplitViewManager {
     this.removeStyles();
     this.tabpanelsPatch?.unpatch();
     this.wrapperPatch?.unpatch();
+    destroyPaneDrag();
     clearSplitHandles();
     destroyLayoutPicker();
     destroyToolbarButtonEnhancement();

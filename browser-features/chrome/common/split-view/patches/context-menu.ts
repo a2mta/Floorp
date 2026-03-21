@@ -9,6 +9,7 @@ import { addI18nObserver } from "#i18n/config-browser-chrome.ts";
 import type { SplitViewTab } from "../data/types.js";
 import { getGBrowser, getTabContextMenu } from "../data/types.js";
 import { splitViewConfig } from "../data/config.js";
+import { swapPanesByTab } from "../utils/reorder-panes.js";
 
 const t = (key: string, opts?: Record<string, string>): string =>
   (i18next.t as (k: string, o?: Record<string, string>) => string)(key, opts);
@@ -219,51 +220,4 @@ function truncateTitle(title: string, maxLen: number): string {
   return title.length > maxLen
     ? `${title.substring(0, maxLen - 1)}\u2026`
     : title;
-}
-
-/**
- * Swap two panes by tab reference, resolving indices at execution time
- * to avoid stale closures. Uses the same moveTabBefore + showSplitViewPanels
- * pattern as wrapper-patch.ts reverseTabs.
- */
-function swapPanesByTab(
-  logger: ConsoleInstance,
-  fromTab: SplitViewTab,
-  toTab: SplitViewTab,
-): void {
-  const gBrowser = getGBrowser();
-  const activeSplitView = gBrowser?.activeSplitView;
-  if (!activeSplitView || !gBrowser) return;
-
-  const tabs = activeSplitView.tabs;
-  const fromIndex = tabs.indexOf(fromTab);
-  const toIndex = tabs.indexOf(toTab);
-
-  if (fromIndex === -1 || toIndex === -1) {
-    logger.warn(
-      `[contextMenu:swapPanes] tab(s) no longer in split view: from=${fromIndex}, to=${toIndex}`,
-    );
-    return;
-  }
-
-  logger.debug(
-    `[contextMenu:swapPanes] swapping pane ${fromIndex} <-> ${toIndex}`,
-  );
-
-  // Build the desired order with the two tabs swapped
-  const reordered = [...tabs];
-  [reordered[fromIndex], reordered[toIndex]] = [
-    reordered[toIndex],
-    reordered[fromIndex],
-  ];
-
-  // Reorder tabs in the DOM using the anchor technique from wrapper-patch.ts
-  const anchor = reordered[0];
-  for (let i = reordered.length - 1; i >= 0; i--) {
-    if (reordered[i] !== anchor) {
-      gBrowser.moveTabBefore(reordered[i], anchor);
-    }
-  }
-
-  gBrowser.showSplitViewPanels(activeSplitView.tabs);
 }
