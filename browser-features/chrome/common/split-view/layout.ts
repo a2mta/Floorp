@@ -6,7 +6,8 @@
 import type { SplitViewLayout } from "./data/types.js";
 import { getGBrowser } from "./data/types.js";
 import { updateHandles } from "./components/split-view-splitters.js";
-import { splitViewConfig } from "./data/config.js";
+import { getEffectiveSplitViewLayout } from "./utils/effective-layout.js";
+import { resolveLayoutForSplitTabs } from "./patches/session-restore.js";
 
 /**
  * Apply the current layout to the active split view.
@@ -26,7 +27,7 @@ export function applyLayout(logger: ConsoleInstance): void {
     return;
   }
 
-  const layout = splitViewConfig().layout;
+  const layout = resolveLayoutForSplitTabs(activeSplitView.tabs);
   logger.debug(`[applyLayout] layout=${layout}, panels=${panels.length}`);
   applyLayoutAttribute(logger, layout, panels.length);
   updateHandles(panels, layout);
@@ -43,14 +44,11 @@ export function applyLayoutAttribute(
   const tabpanels = document?.getElementById("tabbrowser-tabpanels");
   if (!tabpanels) return;
 
-  let effectiveLayout = layout;
-
-  // Grid requires exactly 4 panes
-  if (layout === "grid-2x2" && paneCount !== 4) {
+  const effectiveLayout = getEffectiveSplitViewLayout(layout, paneCount);
+  if (effectiveLayout !== layout) {
     logger.debug(
-      `[applyLayoutAttribute] grid-2x2 requires 4 panes, got ${paneCount}, falling back to horizontal`,
+      `[applyLayoutAttribute] layout=${layout} requires a different pane count, got ${paneCount}, falling back to horizontal`,
     );
-    effectiveLayout = "horizontal";
   }
 
   if (effectiveLayout === "horizontal") {

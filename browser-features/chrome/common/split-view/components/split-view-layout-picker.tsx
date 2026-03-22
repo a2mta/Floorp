@@ -4,9 +4,15 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import i18next from "i18next";
+import { applyLayout } from "../layout.js";
 import { splitViewConfig, setSplitViewConfig } from "../data/config.js";
 import type { SplitViewLayout, SplitViewTab } from "../data/types.js";
 import { getGBrowser } from "../data/types.js";
+import {
+  getActiveSplitViewGroupId,
+  resolveLayoutForSplitTabs,
+  setPersistedGroupLayout,
+} from "../patches/session-restore.js";
 
 const log = console.createInstance({ prefix: "nora@split-view-picker" });
 
@@ -17,11 +23,18 @@ interface LayoutOption {
   layout: SplitViewLayout;
   i18nKey: string;
   minPanes: number;
+  maxPanes?: number;
 }
 
 const LAYOUT_OPTIONS: LayoutOption[] = [
   { layout: "horizontal", i18nKey: "splitView.layoutPicker.horizontal", minPanes: 2 },
   { layout: "vertical", i18nKey: "splitView.layoutPicker.vertical", minPanes: 2 },
+  {
+    layout: "grid-3pane-left-main",
+    i18nKey: "splitView.layoutPicker.grid3paneLeftMain",
+    minPanes: 3,
+    maxPanes: 3,
+  },
   { layout: "grid-2x2", i18nKey: "splitView.layoutPicker.grid2x2", minPanes: 4 },
 ];
 
@@ -65,12 +78,17 @@ function onPopupShowing(): void {
   const gBrowser = getGBrowser();
   const activeSplitView = gBrowser?.activeSplitView;
   const currentPaneCount = activeSplitView?.tabs?.length ?? 2;
-  const currentLayout = splitViewConfig().layout;
+  const currentLayout = activeSplitView
+    ? resolveLayoutForSplitTabs(activeSplitView.tabs)
+    : splitViewConfig().layout;
 
   log.debug(`[popupShowing] panes=${currentPaneCount}, currentLayout=${currentLayout}, activeSplitView=${!!activeSplitView}`);
 
   for (const opt of LAYOUT_OPTIONS) {
     if (currentPaneCount < opt.minPanes) continue;
+    if (opt.maxPanes !== undefined && currentPaneCount > opt.maxPanes) {
+      continue;
+    }
 
     const item = document?.createXULElement("menuitem");
     if (!item) continue;
@@ -82,7 +100,12 @@ function onPopupShowing(): void {
 
     item.addEventListener("command", () => {
       log.debug(`[command] switching layout to ${opt.layout}`);
+      const activeGroupId = getActiveSplitViewGroupId();
+      if (activeGroupId) {
+        setPersistedGroupLayout(activeGroupId, opt.layout);
+      }
       setSplitViewConfig((prev) => ({ ...prev, layout: opt.layout }));
+      applyLayout(log);
     });
 
     if (separator) {

@@ -5,10 +5,11 @@
 
 import { onCleanup } from "solid-js";
 import { getGBrowser } from "../data/types.js";
-import { splitViewConfig } from "../data/config.js";
 import { applyLayoutAttribute } from "../layout.js";
 import { updateHandles } from "../components/split-view-splitters.js";
 import { updatePaneDragGrips } from "../components/split-view-pane-drag.js";
+import { getEffectiveSplitViewLayout } from "../utils/effective-layout.js";
+import { resolveLayoutForSplitTabs } from "./session-restore.js";
 
 /**
  * Listens for TabSplitViewActivate/Deactivate events and re-applies
@@ -39,15 +40,15 @@ export function initSplitViewEvents(
       const panels = gBrowser?.tabpanels?.splitViewPanels;
       if (!panels || panels.length < 2) return;
 
-      const layout = splitViewConfig().layout;
+      const layout = resolveLayoutForSplitTabs(tabs);
       const currentLayoutAttr =
         tabpanels.getAttribute("split-view-layout") ?? "";
+      const expectedLayoutResolved = getEffectiveSplitViewLayout(
+        layout,
+        panels.length,
+      );
       const expectedLayout =
-        layout === "grid-2x2" && panels.length !== 4
-          ? ""
-          : layout === "horizontal"
-            ? ""
-            : layout;
+        expectedLayoutResolved === "horizontal" ? "" : expectedLayoutResolved;
 
       // Only re-apply if layout attribute doesn't match expected state
       if (currentLayoutAttr === expectedLayout) {

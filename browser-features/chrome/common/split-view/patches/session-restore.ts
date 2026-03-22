@@ -4,7 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { onCleanup } from "solid-js";
-import { splitViewConfig } from "../data/config.js";
+import { splitViewConfig, splitViewPaneSizes } from "../data/config.js";
 import {
   getGBrowser,
   PREF_SPLIT_VIEW_SESSION_STATE,
@@ -13,10 +13,19 @@ import {
   SPLIT_VIEW_PANE_INDEX_ATTRIBUTE,
   SPLIT_VIEW_PANE_INDEX_SESSION_KEY,
   type SplitViewLayout,
+  type SplitViewPaneSizes,
   type SplitViewTab,
 } from "../data/types.js";
 import { scheduleSequentialSplitTabSelectionForLoad } from "./activate-split-pane-browsers.js";
 import { orderSplitGroupTabsForRestore } from "../utils/order-split-group-tabs.js";
+import { collectRestorableSplitGroups } from "../utils/collect-restorable-split-groups.js";
+import {
+  getGroupLayoutFromStore,
+  getGroupPaneSizesFromStore,
+  parseGroupLayoutStore,
+  upsertGroupLayoutInStore,
+  upsertGroupPaneSizesInStore,
+} from "../utils/group-layout-store.js";
 
 type SessionStoreWin = {
   promiseInitialized?: Promise<void>;
@@ -63,9 +72,9 @@ function initSessionStoreSplitPersistence(
   );
 }
 
-function getSplitViewGroupIdForTab(
+export function getSplitViewGroupIdForTab(
   tab: SplitViewTab,
-  ss: SessionStoreWin | null,
+  ss: SessionStoreWin | null = getSessionStore(),
 ): string | null {
   const el = tabEl(tab);
   const fromAttr = el.getAttribute(SPLIT_VIEW_GROUP_ATTRIBUTE);
@@ -204,38 +213,155 @@ function isEligibleRestoreTab(tab: SplitViewTab): boolean {
   return true;
 }
 
-function persistGroupLayout(groupId: string, layout: SplitViewLayout): void {
-  type GroupEntry = { groupId: string; layout: SplitViewLayout };
-  type Store = { groups: GroupEntry[] };
-  const empty: Store = { groups: [] };
+function readGroupLayoutStore() {
   try {
-    const raw = Services.prefs.getStringPref(
-      PREF_SPLIT_VIEW_SESSION_STATE,
-      "{}",
-    );
-    const parsed = JSON.parse(raw) as unknown;
-    const store: Store =
-      typeof parsed === "object" &&
-      parsed !== null &&
-      Array.isArray((parsed as Store).groups)
-        ? (parsed as Store)
-        : empty;
-    if (!Array.isArray(store.groups)) {
-      store.groups = [];
-    }
-    const idx = store.groups.findIndex((g) => g.groupId === groupId);
-    if (idx >= 0) {
-      store.groups[idx]!.layout = layout;
-    } else {
-      store.groups.push({ groupId, layout });
-    }
-    Services.prefs.setStringPref(
-      PREF_SPLIT_VIEW_SESSION_STATE,
-      JSON.stringify(store),
+    return parseGroupLayoutStore(
+      Services.prefs.getStringPref(PREF_SPLIT_VIEW_SESSION_STATE, "{}"),
     );
   } catch (e) {
-    console.error("[session-restore] persistGroupLayout failed", e);
+    console.error("[session-restore] readGroupLayoutStore failed", e);
+    return { groups: [] };
   }
+}
+
+export function getPersistedGroupLayout(
+  groupId: string,
+): SplitViewLayout | null {
+  return getGroupLayoutFromStore(readGroupLayoutStore(), groupId);
+}
+
+export function getPersistedGroupPaneSizes(
+  groupId: string,
+): SplitViewPaneSizes | null {
+  return getGroupPaneSizesFromStore(readGroupLayoutStore(), groupId);
+}
+
+export function setPersistedGroupLayout(
+  groupId: string,
+  layout: SplitViewLayout,
+): void {
+  try {
+    const nextStore = upsertGroupLayoutInStore(
+      readGroupLayoutStore(),
+      groupId,
+      layout,
+    );
+    Services.prefs.setStringPref(
+      PREF_SPLIT_VIEW_SESSION_STATE,
+      JSON.stringify(nextStore),
+    );
+  } catch (e) {
+    console.error("[session-restore] setPersistedGroupLayout failed", e);
+  }
+}
+
+export function setPersistedGroupPaneSizes(
+  groupId: string,
+  paneSizes: SplitViewPaneSizes,
+): void {
+  try {
+    const nextStore = upsertGroupPaneSizesInStore(
+      readGroupLayoutStore(),
+      groupId,
+      paneSizes,
+    );
+    Services.prefs.setStringPref(
+      PREF_SPLIT_VIEW_SESSION_STATE,
+      JSON.stringify(nextStore),
+    );
+  } catch (e) {
+    console.error("[session-restore] setPersistedGroupPaneSizes failed", e);
+  }
+}
+
+export function getSplitViewGroupIdForTabs(
+  tabs: SplitViewTab[],
+): string | null {
+  for (const tab of tabs) {
+    const groupId = getSplitViewGroupIdForTab(tab);
+    if (groupId) {
+      return groupId;
+    }
+  }
+  return null;
+}
+
+export function getActiveSplitViewGroupId(): string | null {
+  const gBrowser = getGBrowser();
+  const tabs = gBrowser?.activeSplitView?.tabs;
+  if (!tabs || tabs.length < 2) {
+    return null;
+  }
+  return getSplitViewGroupIdForTabs(tabs);
+}
+
+export function resolveLayoutForSplitTabs(
+  tabs: SplitViewTab[] | null | undefined,
+): SplitViewLayout {
+  const fallback = splitViewConfig().layout;
+  if (!tabs || tabs.length < 2) {
+    return fallback;
+  }
+  const groupId = getSplitViewGroupIdForTabs(tabs);
+  if (!groupId) {
+    return fallback;
+  }
+  return getPersistedGroupLayout(groupId) ?? fallback;
+}
+
+export function resolveLayoutForPanelIds(
+  panelIds: string[],
+): SplitViewLayout {
+  const gBrowser = getGBrowser();
+  if (!gBrowser?.tabs || panelIds.length < 2) {
+    return splitViewConfig().layout;
+  }
+  const panelSet = new Set(panelIds);
+  const tabs = gBrowser.tabs.filter((tab) => panelSet.has(tab.linkedPanel));
+  return resolveLayoutForSplitTabs(tabs);
+}
+
+export function resolvePaneSizesForSplitTabs(
+  tabs: SplitViewTab[] | null | undefined,
+): SplitViewPaneSizes {
+  const fallback = splitViewPaneSizes();
+  if (!tabs || tabs.length < 2) {
+    return fallback;
+  }
+  const groupId = getSplitViewGroupIdForTabs(tabs);
+  if (!groupId) {
+    return fallback;
+  }
+  return getPersistedGroupPaneSizes(groupId) ?? fallback;
+}
+
+export function resolvePaneSizesForPanelIds(
+  panelIds: string[],
+): SplitViewPaneSizes {
+  const gBrowser = getGBrowser();
+  if (!gBrowser?.tabs || panelIds.length < 2) {
+    return splitViewPaneSizes();
+  }
+  const panelSet = new Set(panelIds);
+  const tabs = gBrowser.tabs.filter((tab) => panelSet.has(tab.linkedPanel));
+  return resolvePaneSizesForSplitTabs(tabs);
+}
+
+export function persistPaneSizesForPanelIds(
+  panelIds: string[],
+  paneSizes: SplitViewPaneSizes,
+): void {
+  const gBrowser = getGBrowser();
+  if (!gBrowser?.tabs || panelIds.length < 2) {
+    return;
+  }
+  const panelSet = new Set(panelIds);
+  const tabs = gBrowser.tabs.filter((tab) => panelSet.has(tab.linkedPanel));
+  const groupId = getSplitViewGroupIdForTabs(tabs);
+  if (!groupId) {
+    return;
+  }
+  setPersistedGroupPaneSizes(groupId, paneSizes);
 }
 
 type TabSplitViewActivateDetail = { tabs?: SplitViewTab[] };
@@ -273,8 +399,10 @@ export function applySplitViewSessionMarkersForTabs(
     setPaneIndexOnTab(tab, i, ss);
   }
 
-  const layout = splitViewConfig().layout;
-  persistGroupLayout(groupId, layout);
+  const layout = getPersistedGroupLayout(groupId) ?? splitViewConfig().layout;
+  setPersistedGroupLayout(groupId, layout);
+  const paneSizes = getPersistedGroupPaneSizes(groupId) ?? splitViewPaneSizes();
+  setPersistedGroupPaneSizes(groupId, paneSizes);
 
   logger.debug(
     `[session-restore:markers] source=${source} groupId=${groupId}, tabs=${tabs.length}, layout=${layout}, linkedPanels=[${tabs.map((t) => t.linkedPanel).join(", ")}]`,
@@ -354,45 +482,27 @@ function restoreSplitViewFromSession(logger: ConsoleInstance): void {
     `[session-restore:restore] scanning ${allTabs.length} tab(s) for split group (attr="${SPLIT_VIEW_GROUP_ATTRIBUTE}" or session key="${SPLIT_VIEW_GROUP_SESSION_KEY}")`,
   );
 
-  const groupBuckets = new Map<string, SplitViewTab[]>();
-
-  for (const tab of allTabs) {
-    const gid = getSplitViewGroupIdForTab(tab, ss);
-    const eligible = isEligibleRestoreTab(tab);
-    if (gid) {
-      logger.debug(
-        `[session-restore:restore] tab linkedPanel=${tab.linkedPanel} gid=${gid} eligible=${eligible}`,
-      );
-    }
-    if (!gid || !eligible) {
-      continue;
-    }
-    const arr = groupBuckets.get(gid) ?? [];
-    arr.push(tab);
-    groupBuckets.set(gid, arr);
-  }
-
-  logger.debug(
-    `[session-restore:restore] groupBuckets: ${groupBuckets.size} group(s) — ${[...groupBuckets.entries()].map(([k, v]) => `${k}(${v.length})`).join(", ") || "none"}`,
+  const eligibleTabs = allTabs.filter(isEligibleRestoreTab);
+  const groupsToRestore = collectRestorableSplitGroups(
+    eligibleTabs,
+    splitViewConfig().maxPanes,
+    (tab) => getSplitViewGroupIdForTab(tab, ss),
+    (tabs, tabsInStripOrder) =>
+      orderSplitGroupTabsForRestore(
+        tabs,
+        tabsInStripOrder,
+        (tab) => {
+          const n = getPaneIndexForTab(tab, ss);
+          return n === null ? undefined : n;
+        },
+      ),
   );
 
-  // Pick the first group (by tab strip order) that has 2+ eligible tabs.
-  let chosenGid: string | null = null;
-  let chosen: SplitViewTab[] | null = null;
-  for (const tab of allTabs) {
-    const gid = getSplitViewGroupIdForTab(tab, ss);
-    if (!gid) {
-      continue;
-    }
-    const arr = groupBuckets.get(gid);
-    if (arr && arr.length >= 2) {
-      chosenGid = gid;
-      chosen = arr;
-      break;
-    }
-  }
+  logger.debug(
+    `[session-restore:restore] restorableGroups=${groupsToRestore.map((group) => `${group.groupId}(${group.tabs.length})`).join(", ") || "none"}`,
+  );
 
-  if (!chosen || chosen.length < 2 || !chosenGid) {
+  if (groupsToRestore.length === 0) {
     logger.debug(
       "[session-restore:restore] no group with 2+ eligible tabs; clearing stray group markers",
     );
@@ -400,52 +510,44 @@ function restoreSplitViewFromSession(logger: ConsoleInstance): void {
     return;
   }
 
-  const maxPanes = splitViewConfig().maxPanes;
-  const toRestore = orderSplitGroupTabsForRestore(
-    chosen.slice(0, maxPanes),
-    allTabs,
-    (tab) => {
-      const n = getPaneIndexForTab(tab, ss);
-      return n === null ? undefined : n;
-    },
-  );
+  const restoredTabs: SplitViewTab[] = [];
+  const originallySelected = gBrowser.selectedTab;
 
-  // Re-apply canonical markers so indices are contiguous 0..n-1.
-  for (let i = 0; i < toRestore.length; i++) {
-    const t = toRestore[i]!;
-    setSplitViewGroupOnTab(t, chosenGid, ss);
-    setPaneIndexOnTab(t, i, ss);
+  for (const group of groupsToRestore) {
+    for (let i = 0; i < group.tabs.length; i++) {
+      const tab = group.tabs[i]!;
+      setSplitViewGroupOnTab(tab, group.groupId, ss);
+      setPaneIndexOnTab(tab, i, ss);
+    }
+
+    try {
+      gBrowser.selectedTab = group.tabs[0]!;
+      const wrapper = gBrowser.addTabSplitView(group.tabs, {
+        id: group.groupId,
+        insertBefore: group.tabs[0],
+      });
+      logger.debug(
+        `[session-restore:restore] addTabSplitView ok: ${group.tabs.length} pane(s), ` +
+          `groupId=${group.groupId}, wrapper=${wrapper ? "created" : "null"}, ` +
+          `linkedPanels=[${group.tabs.map((t) => t.linkedPanel).join(", ")}]`,
+      );
+      restoredTabs.push(...group.tabs);
+    } catch (e) {
+      logger.error(
+        `[session-restore:restore] addTabSplitView failed for group=${group.groupId}: ${e}`,
+      );
+    }
   }
 
-  try {
-    // Use addTabSplitView to go through the full Firefox wrapper lifecycle:
-    //   _createTabSplitView → tabContainer.insertBefore → wrapper.addTabs
-    //     → moveTabToSplitView (tab.splitview = wrapper)
-    //     → #activate → showSplitViewPanels + TabSplitViewActivate event
-    //     → setIsSplitViewActive (panel active attributes)
-    // This ensures the tab bar shows split-view styling and
-    // gBrowser.activeSplitView is set correctly.
-    gBrowser.selectedTab = toRestore[0]!;
-    const wrapper = gBrowser.addTabSplitView(toRestore, {
-      id: chosenGid,
-      insertBefore: toRestore[0],
-    });
-    logger.debug(
-      `[session-restore:restore] addTabSplitView ok: ${toRestore.length} pane(s), ` +
-        `wrapper=${wrapper ? "created" : "null"}, ` +
-        `linkedPanels=[${toRestore.map((t) => t.linkedPanel).join(", ")}]`,
-    );
-
-    // Schedule browser warming for non-selected panes — after session restore
-    // their docShells may not be fully initialised yet.
-    setTimeout(() => {
-      scheduleSequentialSplitTabSelectionForLoad(logger);
-    }, 40);
-  } catch (e) {
-    logger.error(`[session-restore:restore] addTabSplitView failed: ${e}`);
+  if (originallySelected) {
+    gBrowser.selectedTab = originallySelected;
   }
 
-  clearSplitViewGroupMarkersExcept(allTabs, toRestore, ss);
+  setTimeout(() => {
+    scheduleSequentialSplitTabSelectionForLoad(logger);
+  }, 40);
+
+  clearSplitViewGroupMarkersExcept(allTabs, restoredTabs, ss);
 }
 
 export function initSessionRestore(logger: ConsoleInstance): void {

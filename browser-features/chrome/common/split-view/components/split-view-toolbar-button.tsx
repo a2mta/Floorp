@@ -5,6 +5,7 @@
 
 import { splitViewConfig } from "../data/config.js";
 import { getGBrowser } from "../data/types.js";
+import { getActiveSplitViewGroupId, getPersistedGroupLayout } from "../patches/session-restore.js";
 
 /**
  * Enhances the URL bar split view button to show N-pane information.
@@ -17,6 +18,7 @@ export function initToolbarButtonEnhancement(): void {
   const tabContainer = getGBrowser()?.tabContainer;
   if (!tabContainer) return;
 
+  tabContainer.addEventListener("TabSelect", onTabStateChanged);
   tabContainer.addEventListener(
     "TabSplitViewActivate",
     onSplitViewActivate,
@@ -31,6 +33,7 @@ export function destroyToolbarButtonEnhancement(): void {
   const tabContainer = getGBrowser()?.tabContainer;
   if (!tabContainer) return;
 
+  tabContainer.removeEventListener("TabSelect", onTabStateChanged);
   tabContainer.removeEventListener(
     "TabSplitViewActivate",
     onSplitViewActivate,
@@ -52,6 +55,10 @@ function onSplitViewActivate(e: Event): void {
   updateButton(count);
 }
 
+function onTabStateChanged(): void {
+  syncButtonFromCurrentState();
+}
+
 function onSplitViewDeactivate(): void {
   const button = document?.getElementById("split-view-button");
   if (!button) return;
@@ -60,10 +67,24 @@ function onSplitViewDeactivate(): void {
   button.removeAttribute("data-layout");
 }
 
+function syncButtonFromCurrentState(): void {
+  const gBrowser = getGBrowser();
+  const selectedTab = gBrowser?.selectedTab;
+  if (!gBrowser?.activeSplitView || !selectedTab?.splitview) {
+    onSplitViewDeactivate();
+    return;
+  }
+  updateButton(gBrowser.activeSplitView.tabs.length);
+}
+
 function updateButton(paneCount: number): void {
   const button = document?.getElementById("split-view-button");
   if (!button) return;
 
   button.setAttribute("data-pane-count", String(paneCount));
-  button.setAttribute("data-layout", splitViewConfig().layout);
+  const groupId = getActiveSplitViewGroupId();
+  const layout = groupId
+    ? getPersistedGroupLayout(groupId)
+    : null;
+  button.setAttribute("data-layout", layout ?? splitViewConfig().layout);
 }

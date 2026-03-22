@@ -3,7 +3,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-export type SplitViewLayout = "horizontal" | "vertical" | "grid-2x2";
+export type SplitViewLayout =
+  | "horizontal"
+  | "vertical"
+  | "grid-2x2"
+  | "grid-3pane-left-main";
 
 // ===== Firefox/Gecko API types for split-view =====
 

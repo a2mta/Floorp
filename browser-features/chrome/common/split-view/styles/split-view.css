@@ -178,6 +178,40 @@
   height: 4px;
 }
 
+/* 3-pane grid vertical handle (between large left pane and right stack) */
+.floorp-grid-handle[data-orientation="grid-3pane-col"] {
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  left: calc(var(--floorp-grid-col-ratio, 50%) - 4px);
+  cursor: col-resize;
+}
+
+.floorp-grid-handle[data-orientation="grid-3pane-col"]::after {
+  inset-block: 50%;
+  inset-inline: 2px;
+  transform: translateY(-50%);
+  height: 40px;
+  width: 4px;
+}
+
+/* 3-pane grid horizontal handle (only within the right stack) */
+.floorp-grid-handle[data-orientation="grid-3pane-row"] {
+  left: calc(var(--floorp-grid-col-ratio, 50%) + 4px);
+  right: 0;
+  height: 8px;
+  top: calc(var(--floorp-grid-row-ratio, 50%) - 4px);
+  cursor: row-resize;
+}
+
+.floorp-grid-handle[data-orientation="grid-3pane-row"]::after {
+  inset-inline: 50%;
+  inset-block: 2px;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 4px;
+}
+
 /* Center intersection handle */
 .floorp-grid-handle[data-orientation="grid-center"] {
   width: 16px;
@@ -219,7 +253,9 @@
  * create extra implicit grid tracks.
  */
 #tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"],
-#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] {
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-3pane-left-main"],
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"],
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-3pane-left-main"] {
   display: grid !important;
   position: relative;
   grid-template-columns: 1fr 1fr;
@@ -228,7 +264,9 @@
 
 /* Collapse non-split-view children so they don't participate in grid layout */
 #tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > :not(.split-view-panel):not(.floorp-grid-handle),
-#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] > :not(.split-view-panel):not(.floorp-grid-handle) {
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-3pane-left-main"] > :not(.split-view-panel):not(.floorp-grid-handle),
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] > :not(.split-view-panel):not(.floorp-grid-handle),
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-3pane-left-main"] > :not(.split-view-panel):not(.floorp-grid-handle) {
   display: none !important;
 }
 
@@ -257,9 +295,29 @@
   grid-column: 2;
 }
 
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-3pane-left-main"] > .split-view-panel[column="0"],
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-3pane-left-main"] > .split-view-panel[column="0"] {
+  grid-row: 1 / span 2;
+  grid-column: 1;
+}
+
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-3pane-left-main"] > .split-view-panel[column="1"],
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-3pane-left-main"] > .split-view-panel[column="1"] {
+  grid-row: 1;
+  grid-column: 2;
+}
+
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-3pane-left-main"] > .split-view-panel[column="2"],
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-3pane-left-main"] > .split-view-panel[column="2"] {
+  grid-row: 2;
+  grid-column: 2;
+}
+
 /* Remove flex-specific constraints that break grid cell sizing */
 #tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel,
-#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] > .split-view-panel {
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-3pane-left-main"] > .split-view-panel,
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] > .split-view-panel,
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-3pane-left-main"] > .split-view-panel {
   max-width: unset !important;
   min-width: unset !important;
   max-height: unset !important;
@@ -272,7 +330,9 @@
 
 /* Ensure the browserContainer fills the grid cell */
 #tabbrowser-tabpanels[splitview][split-view-layout="grid-2x2"] > .split-view-panel > .browserContainer,
-#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] > .split-view-panel > .browserContainer {
+#tabbrowser-tabpanels[splitview][split-view-layout="grid-3pane-left-main"] > .split-view-panel > .browserContainer,
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-2x2"] > .split-view-panel > .browserContainer,
+#tabbrowser-tabpanels[data-floorp-split][split-view-layout="grid-3pane-left-main"] > .split-view-panel > .browserContainer {
   min-height: 0;
   min-width: 0;
 }
@@ -316,8 +376,10 @@
  * negative margin-inline from hiding tabs, Lepton also applies
  * max-height: var(--tab-min-height_mlt) meant for multirow tabs.
  * Reset it so the tab strip isn't height-constrained during split-view.
+ * Use [splitview-multibar] (set only by split-view code) to avoid
+ * overriding Lepton's intentional max-height for multirow tabs.
  */
-:root:has(#tabbrowser-tabpanels[data-floorp-split]) #TabsToolbar[multibar] #tabbrowser-tabs:not([orient="vertical"]) {
+#TabsToolbar[splitview-multibar] #tabbrowser-tabs:not([orient="vertical"]) {
   max-height: unset !important;
 }
 
@@ -338,35 +400,38 @@
   pointer-events: none !important;
 }
 
-/* ===== Active pane highlight =====
- * Highlights the pane whose tab is currently selected (gBrowser.selectedTab).
- * Uses inset box-shadow to avoid affecting layout (unlike border) and to
- * stay within the pane bounds (unlike outline, which can be clipped in grid).
- * Transition is on the base rule so removal also animates smoothly.
+/* ===== Pane reorder affordance =====
+ * Keep reorder grips subtly visible so the feature is discoverable even before
+ * hover. Panels still animate box-shadow for drag source / drop target states.
  */
 #tabbrowser-tabpanels[data-floorp-split] > .split-view-panel {
-  transition: box-shadow 150ms ease;
-}
-
-#tabbrowser-tabpanels[data-floorp-split] > .split-view-panel[data-floorp-active-pane] {
-  box-shadow: inset 0 0 0 2px var(--focus-outline-color);
-  border-radius: 2px;
+  transition:
+    box-shadow 150ms ease,
+    opacity 150ms ease,
+    background-color 150ms ease;
+  border-radius: 4px;
 }
 
 /* ===== Pane reorder drag grip (top-center of each pane) ===== */
 .floorp-pane-drag-grip {
   position: absolute;
-  top: 0;
+  top: 6px;
   left: 50%;
   transform: translateX(-50%);
-  width: 40px;
-  height: 12px;
+  width: 56px;
+  height: 16px;
   z-index: 10;
   cursor: grab;
-  opacity: 0;
-  transition: opacity 150ms ease;
-  border-radius: 0 0 4px 4px;
-  background: var(--toolbar-bgcolor);
+  opacity: 0.5;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease,
+    background-color 150ms ease;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--focus-outline-color) 24%, transparent);
+  background: color-mix(in srgb, var(--toolbar-bgcolor) 90%, transparent);
+  box-shadow: 0 1px 3px color-mix(in srgb, black 12%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -374,7 +439,10 @@
 }
 
 #tabbrowser-tabpanels[data-floorp-split] > .split-view-panel:hover > .floorp-pane-drag-grip {
-  opacity: 0.7;
+  opacity: 1;
+  transform: translateX(-50%) translateY(1px);
+  background: color-mix(in srgb, var(--toolbar-bgcolor) 96%, transparent);
+  box-shadow: 0 2px 6px color-mix(in srgb, black 18%, transparent);
 }
 
 .floorp-pane-drag-grip:hover {
@@ -383,24 +451,39 @@
 
 .floorp-pane-drag-grip:active {
   cursor: grabbing;
+  transform: translateX(-50%) translateY(1px) scale(0.98);
 }
 
 .floorp-pane-drag-grip::after {
   content: "";
   display: block;
-  width: 20px;
-  height: 4px;
+  width: 24px;
+  height: 6px;
   background-image: radial-gradient(circle, var(--toolbar-field-focus-color) 1.5px, transparent 1.5px);
   background-size: 8px 4px;
   background-repeat: repeat-x;
   background-position: center;
 }
 
+#tabbrowser-tabpanels[data-floorp-dragging="pane-reorder"] > .split-view-panel {
+  background: color-mix(in srgb, var(--toolbar-bgcolor) 10%, transparent);
+}
+
+#tabbrowser-tabpanels[data-floorp-dragging="pane-reorder"] > .split-view-panel > .floorp-pane-drag-grip {
+  opacity: 0.35;
+}
+
 #tabbrowser-tabpanels[data-floorp-split] > .split-view-panel[data-floorp-drag-source] {
-  opacity: 0.5;
+  opacity: 0.78;
   box-shadow: inset 0 0 0 2px var(--focus-outline-color) !important;
 }
 
 #tabbrowser-tabpanels[data-floorp-split] > .split-view-panel[data-floorp-drop-target] {
-  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--focus-outline-color) 60%, transparent) !important;
+  background: color-mix(in srgb, var(--focus-outline-color) 10%, transparent);
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--focus-outline-color) 72%, transparent) !important;
+}
+
+#tabbrowser-tabpanels[data-floorp-split] > .split-view-panel[data-floorp-drop-target] > .floorp-pane-drag-grip,
+#tabbrowser-tabpanels[data-floorp-split] > .split-view-panel[data-floorp-drag-source] > .floorp-pane-drag-grip {
+  opacity: 1;
 }

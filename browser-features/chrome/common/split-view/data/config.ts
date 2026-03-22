@@ -24,7 +24,12 @@ function deepEquals(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-const VALID_LAYOUTS = new Set(["horizontal", "vertical", "grid-2x2"]);
+const VALID_LAYOUTS = new Set([
+  "horizontal",
+  "vertical",
+  "grid-2x2",
+  "grid-3pane-left-main",
+]);
 
 function clampRatio(n: unknown): number {
   return typeof n === "number" && Number.isFinite(n)

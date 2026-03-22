@@ -5,18 +5,21 @@
 
 import type { SplitViewLayout, SplitViewTab } from "../data/types.js";
 import { getGBrowser } from "../data/types.js";
-import { splitViewConfig } from "../data/config.js";
 import {
   clearSplitHandles,
 } from "../components/split-view-splitters.js";
 import { clearGridStyles } from "../layout.js";
 import type { PatchState } from "./patch-state.js";
-import { applySplitViewSessionMarkersForTabs } from "./session-restore.js";
+import {
+  applySplitViewSessionMarkersForTabs,
+  resolveLayoutForPanelIds,
+} from "./session-restore.js";
 import {
   ensureSplitPanelsActiveClassFromState,
   refreshActiveSplitPaneIndicator,
 } from "./active-pane-tracker.js";
 import { logTabpanelsSplitDiagnostics } from "./split-view-diagnostics.js";
+import { resetSplitPanelPresentationState } from "../utils/reset-split-panel-presentation.js";
 import {
   ensureSplitPaneTabBrowsersAreWarmed,
   scheduleSplitPaneWarmRetries,
@@ -151,15 +154,26 @@ export function patchTabpanels(
           // Ensure multibar is set for Lepton theme compatibility
           const tabsToolbar =
             document?.getElementById("TabsToolbar");
-          if (
-            tabsToolbar &&
-            !tabsToolbar.hasAttribute("multibar")
-          ) {
-            tabsToolbar.setAttribute("multibar", "true");
-            state.multibarSetBySplitView = true;
+          if (tabsToolbar) {
+            if (!tabsToolbar.hasAttribute("multibar")) {
+              tabsToolbar.setAttribute("multibar", "true");
+              state.multibarSetBySplitView = true;
+            }
+            tabsToolbar.setAttribute("splitview-multibar", "true");
           }
-          const layout = splitViewConfig().layout;
+          const layout = resolveLayoutForPanelIds(newPanels);
           onPanelsChanged(newPanels, layout);
+        } else {
+          // Split view panels cleared — clean up splitview-multibar
+          const tabsToolbar =
+            document?.getElementById("TabsToolbar");
+          if (tabsToolbar) {
+            tabsToolbar.removeAttribute("splitview-multibar");
+            if (state.multibarSetBySplitView) {
+              tabsToolbar.removeAttribute("multibar");
+              state.multibarSetBySplitView = false;
+            }
+          }
         }
         state.inSplitViewPanelsSet = false;
       },
@@ -206,9 +220,12 @@ export function patchTabpanels(
           // apply negative margins that hide split-view tabs.
           // Record whether multibar was already set (by multirow tabs)
           // so we don't remove it on deactivation.
-          if (tabsToolbar && !tabsToolbar.hasAttribute("multibar")) {
-            tabsToolbar.setAttribute("multibar", "true");
-            state.multibarSetBySplitView = true;
+          if (tabsToolbar) {
+            if (!tabsToolbar.hasAttribute("multibar")) {
+              tabsToolbar.setAttribute("multibar", "true");
+              state.multibarSetBySplitView = true;
+            }
+            tabsToolbar.setAttribute("splitview-multibar", "true");
           }
         } else {
           this.removeAttribute("data-floorp-split");
@@ -216,12 +233,11 @@ export function patchTabpanels(
           this.removeAttribute("data-floorp-dragging");
           clearSplitHandles();
           clearGridStyles(this);
-          // Clean up split-view-panel-active from ALL panels
-          const staleActives = this.querySelectorAll(
-            ".split-view-panel-active",
-          );
-          for (const el of staleActives) {
-            el.classList.remove("split-view-panel-active");
+          // When leaving split view, Gecko can keep `.split-view-panel`
+          // / `.deck-selected` on old panes until the next native refresh.
+          // Those stale classes can mask the newly selected normal tab panel.
+          for (const child of (this as HTMLElement).children) {
+            resetSplitPanelPresentationState(child);
           }
           // Clean up active pane indicator
           const staleActivePanes = this.querySelectorAll(
@@ -232,10 +248,18 @@ export function patchTabpanels(
           }
           // Reset panel cache so next activation re-applies layout
           state.lastPanelIds = "";
-          // Only remove multibar if we were the ones who set it
-          if (state.multibarSetBySplitView && tabsToolbar) {
-            tabsToolbar.removeAttribute("multibar");
-            state.multibarSetBySplitView = false;
+          // Only remove splitview-multibar / multibar when no split
+          // panels remain. The tab group can still exist in the tab bar
+          // even after isSplitViewActive becomes false.
+          const panels = (this as unknown as { splitViewPanels?: string[] })
+            .splitViewPanels;
+          const hasPanels = panels && panels.length >= 2;
+          if (!hasPanels && tabsToolbar) {
+            tabsToolbar.removeAttribute("splitview-multibar");
+            if (state.multibarSetBySplitView) {
+              tabsToolbar.removeAttribute("multibar");
+              state.multibarSetBySplitView = false;
+            }
           }
         }
       },
@@ -387,6 +411,10 @@ export function patchTabpanels(
 
       tabpanels.removeAttribute("data-floorp-split");
       tabpanels.removeAttribute("split-view-layout");
+      const tabsToolbar = document?.getElementById("TabsToolbar");
+      if (tabsToolbar) {
+        tabsToolbar.removeAttribute("splitview-multibar");
+      }
       logger.debug("[unpatch] MozTabpanels restored");
     },
   };

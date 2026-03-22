@@ -380,6 +380,7 @@
     "layoutPicker": {
       "horizontal": "Horizontal Split",
       "vertical": "Vertical Split",
+      "grid3paneLeftMain": "Grid (Large Left)",
       "grid2x2": "Grid (2×2)",
       "addPane": "Add Pane",
       "removePane": "Remove Last Pane"

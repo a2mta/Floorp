@@ -11,6 +11,7 @@ import {
 } from "../data/types.js";
 import { logTabpanelsSplitDiagnostics } from "./split-view-diagnostics.js";
 import { ensureSplitPaneTabBrowsersAreWarmed } from "./activate-split-pane-browsers.js";
+import { hasLiveSplitPanelsState } from "../utils/live-split-ui.js";
 
 const log = console.createInstance({
   prefix: "nora@split-view:active-pane",
@@ -20,31 +21,6 @@ let splitPanelClassObserver: MutationObserver | null = null;
 let deckResyncRaf = 0;
 /** Ignore class mutations caused by our own `syncSplitViewDeckSelectedClass` (avoids observer ↔ sync loops). */
 let suppressDeckClassObserver = false;
-
-type PanelResolve = {
-  panel: HTMLElement | null;
-  via: "linkedPanel-id" | "ancestor-walk" | "none";
-  depth?: number;
-};
-
-function resolveSplitPanelForTab(tab: SplitViewTab): PanelResolve {
-  const id = tab.linkedPanel;
-  if (id) {
-    const el = document?.getElementById(id);
-    if (el?.classList.contains("split-view-panel")) {
-      return { panel: el as HTMLElement, via: "linkedPanel-id" };
-    }
-  }
-  const b = tab.linkedBrowser as unknown as XULElement | null;
-  let n: XULElement | null = b;
-  for (let d = 0; d < 24 && n; d++) {
-    if (n.classList?.contains("split-view-panel")) {
-      return { panel: n as HTMLElement, via: "ancestor-walk", depth: d };
-    }
-    n = n.parentElement as XULElement | null;
-  }
-  return { panel: null, via: "none" };
-}
 
 /**
  * `gBrowser.activeSplitView` is often null during session restore even when
@@ -58,8 +34,13 @@ function splitTabsForActiveIndicator(
   if (wrapper?.tabs && wrapper.tabs.length >= 2) {
     return wrapper.tabs;
   }
+  const hasFloorpSplitAttr = Boolean(
+    document?.getElementById("tabbrowser-tabpanels")?.hasAttribute(
+      "data-floorp-split",
+    ),
+  );
   const ids = gBrowser.tabpanels?.splitViewPanels;
-  if (!ids || ids.length < 2) {
+  if (!hasLiveSplitPanelsState(ids?.length ?? 0, hasFloorpSplitAttr)) {
     return null;
   }
   const tabs: SplitViewTab[] = [];
@@ -79,9 +60,17 @@ function splitTabsForActiveIndicator(
 }
 
 function isMultiPaneSplitUiActive(gBrowser: SplitViewGBrowser): boolean {
+  const hasFloorpSplitAttr = Boolean(
+    document?.getElementById("tabbrowser-tabpanels")?.hasAttribute(
+      "data-floorp-split",
+    ),
+  );
   return (
     !!gBrowser.activeSplitView ||
-    (gBrowser.tabpanels?.splitViewPanels?.length ?? 0) >= 2
+    hasLiveSplitPanelsState(
+      gBrowser.tabpanels?.splitViewPanels?.length ?? 0,
+      hasFloorpSplitAttr,
+    )
   );
 }
 
@@ -217,9 +206,13 @@ export function ensureSplitPanelsActiveClassFromState(): void {
   const gBrowser = getGBrowser();
   const ids = gBrowser?.tabpanels?.splitViewPanels;
   const root = document?.getElementById("tabbrowser-tabpanels");
-  if (!ids || ids.length < 2 || !root) {
+  if (
+    !ids ||
+    !root ||
+    !hasLiveSplitPanelsState(ids.length, root.hasAttribute("data-floorp-split"))
+  ) {
     log.debug(
-      `[ensureActiveClass] skip ids=${ids?.length ?? "undef"} root=${!!root}`,
+      `[ensureActiveClass] skip ids=${ids?.length ?? "undef"} root=${!!root} floorpSplit=${root?.hasAttribute("data-floorp-split") ?? false}`,
     );
     return;
   }
@@ -252,9 +245,7 @@ export function ensureSplitPanelsActiveClassFromState(): void {
   );
 }
 
-/**
- * Updates `data-floorp-active-pane` on the pane that owns `gBrowser.selectedTab`.
- */
+/** Keep split pane deck-selected state in sync without adding visual emphasis. */
 export function refreshActiveSplitPaneIndicator(): void {
   const gBrowser = getGBrowser();
   if (!gBrowser) {
@@ -282,40 +273,20 @@ export function refreshActiveSplitPaneIndicator(): void {
 
   if (activeIndex === -1) {
     log.warn(
-      "[refreshIndicator] selectedTab not in split tab list → clear indicators (wrapper / selection mismatch?)",
+      "[refreshIndicator] selectedTab not in split tab list → skip split selection sync",
     );
     clearActivePaneIndicator();
     logTabpanelsSplitDiagnostics("refreshIndicator:activeIndex=-1");
     return;
   }
 
-  for (let i = 0; i < splitTabs.length; i++) {
-    const tab = splitTabs[i]!;
-    const { panel, via, depth } = resolveSplitPanelForTab(tab);
-    log.debug(
-      `[refreshIndicator] tab[${i}] linkedPanel=${tab.linkedPanel ?? "null"} ` +
-        `resolve=${via}${depth !== undefined ? ` depth=${depth}` : ""} → panelId=${panel?.id ?? "null"}`,
-    );
-    if (!panel) {
-      continue;
-    }
-
-    if (i === activeIndex) {
-      panel.setAttribute("data-floorp-active-pane", "true");
-    } else {
-      panel.removeAttribute("data-floorp-active-pane");
-    }
-  }
-
+  clearActivePaneIndicator();
   syncSplitViewDeckSelectedClass(gBrowser);
-
-  logTabpanelsSplitDiagnostics("refreshIndicator:after");
+  logTabpanelsSplitDiagnostics("refreshIndicator:afterSync");
 }
 
 /**
- * Tracks which pane is active (contains gBrowser.selectedTab) and sets
- * a `data-floorp-active-pane` attribute on the corresponding panel element.
- * This attribute drives a CSS inset box-shadow highlight.
+ * Tracks split view selection changes and keeps pane presentation state in sync.
  */
 export function initActivePaneTracker(
   logger: ConsoleInstance,
@@ -359,7 +330,7 @@ export function initActivePaneTracker(
 
   const onDeactivate = (): void => {
     clearActivePaneIndicator();
-    log.debug("[TabSplitViewDeactivate] cleared data-floorp-active-pane");
+    log.debug("[TabSplitViewDeactivate] cleared stale split pane attrs");
     logTabpanelsSplitDiagnostics("TabSplitViewDeactivate");
   };
 
