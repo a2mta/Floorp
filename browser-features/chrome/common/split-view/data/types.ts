@@ -44,6 +44,11 @@ export interface SplitViewGBrowser {
     wrapper: SplitViewWrapper | null,
   ): void;
   addTrustedTab(url: string): SplitViewTab;
+  /** Create a split view wrapper, move tabs into it, and activate. */
+  addTabSplitView(
+    tabs: SplitViewTab[],
+    options?: { id?: string | null; insertBefore?: SplitViewTab | null },
+  ): SplitViewWrapper | null;
 }
 
 /** TabContextMenu global. */

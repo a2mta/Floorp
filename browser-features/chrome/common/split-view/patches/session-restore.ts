@@ -16,7 +16,6 @@ import {
   type SplitViewTab,
 } from "../data/types.js";
 import { scheduleSequentialSplitTabSelectionForLoad } from "./activate-split-pane-browsers.js";
-import { reorderSplitTabsForDesiredOrder } from "../utils/reorder-panes.js";
 import { orderSplitGroupTabsForRestore } from "../utils/order-split-group-tabs.js";
 
 type SessionStoreWin = {
@@ -340,6 +339,15 @@ function restoreSplitViewFromSession(logger: ConsoleInstance): void {
     return;
   }
 
+  // If a split view is already active (e.g. from a previous restore attempt
+  // or user action), do not interfere.
+  if (gBrowser.activeSplitView) {
+    logger.debug(
+      "[session-restore:restore] skip: activeSplitView already exists",
+    );
+    return;
+  }
+
   const allTabs = gBrowser.tabs;
   const ss = getSessionStore();
   logger.debug(
@@ -368,6 +376,8 @@ function restoreSplitViewFromSession(logger: ConsoleInstance): void {
     `[session-restore:restore] groupBuckets: ${groupBuckets.size} group(s) — ${[...groupBuckets.entries()].map(([k, v]) => `${k}(${v.length})`).join(", ") || "none"}`,
   );
 
+  // Pick the first group (by tab strip order) that has 2+ eligible tabs.
+  let chosenGid: string | null = null;
   let chosen: SplitViewTab[] | null = null;
   for (const tab of allTabs) {
     const gid = getSplitViewGroupIdForTab(tab, ss);
@@ -376,12 +386,13 @@ function restoreSplitViewFromSession(logger: ConsoleInstance): void {
     }
     const arr = groupBuckets.get(gid);
     if (arr && arr.length >= 2) {
+      chosenGid = gid;
       chosen = arr;
       break;
     }
   }
 
-  if (!chosen || chosen.length < 2) {
+  if (!chosen || chosen.length < 2 || !chosenGid) {
     logger.debug(
       "[session-restore:restore] no group with 2+ eligible tabs; clearing stray group markers",
     );
@@ -398,30 +409,40 @@ function restoreSplitViewFromSession(logger: ConsoleInstance): void {
       return n === null ? undefined : n;
     },
   );
-  const canonicalGid = getSplitViewGroupIdForTab(toRestore[0]!, ss);
-  if (canonicalGid) {
-    for (let i = 0; i < toRestore.length; i++) {
-      const t = toRestore[i]!;
-      setSplitViewGroupOnTab(t, canonicalGid, ss);
-      setPaneIndexOnTab(t, i, ss);
-    }
+
+  // Re-apply canonical markers so indices are contiguous 0..n-1.
+  for (let i = 0; i < toRestore.length; i++) {
+    const t = toRestore[i]!;
+    setSplitViewGroupOnTab(t, chosenGid, ss);
+    setPaneIndexOnTab(t, i, ss);
   }
 
   try {
-    reorderSplitTabsForDesiredOrder(gBrowser, toRestore);
-    logger.debug(
-      `[session-restore:restore] reorderSplitTabsForDesiredOrder ok: linkedPanels=[${toRestore.map((t) => t.linkedPanel).join(", ")}]`,
-    );
+    // Use addTabSplitView to go through the full Firefox wrapper lifecycle:
+    //   _createTabSplitView → tabContainer.insertBefore → wrapper.addTabs
+    //     → moveTabToSplitView (tab.splitview = wrapper)
+    //     → #activate → showSplitViewPanels + TabSplitViewActivate event
+    //     → setIsSplitViewActive (panel active attributes)
+    // This ensures the tab bar shows split-view styling and
+    // gBrowser.activeSplitView is set correctly.
     gBrowser.selectedTab = toRestore[0]!;
-    gBrowser.showSplitViewPanels(toRestore);
+    const wrapper = gBrowser.addTabSplitView(toRestore, {
+      id: chosenGid,
+      insertBefore: toRestore[0],
+    });
     logger.debug(
-      `[session-restore:restore] showSplitViewPanels ok: ${toRestore.length} pane(s) linkedPanels=[${toRestore.map((t) => t.linkedPanel).join(", ")}]`,
+      `[session-restore:restore] addTabSplitView ok: ${toRestore.length} pane(s), ` +
+        `wrapper=${wrapper ? "created" : "null"}, ` +
+        `linkedPanels=[${toRestore.map((t) => t.linkedPanel).join(", ")}]`,
     );
+
+    // Schedule browser warming for non-selected panes — after session restore
+    // their docShells may not be fully initialised yet.
     setTimeout(() => {
       scheduleSequentialSplitTabSelectionForLoad(logger);
     }, 40);
   } catch (e) {
-    logger.error(`[session-restore:restore] showSplitViewPanels failed: ${e}`);
+    logger.error(`[session-restore:restore] addTabSplitView failed: ${e}`);
   }
 
   clearSplitViewGroupMarkersExcept(allTabs, toRestore, ss);

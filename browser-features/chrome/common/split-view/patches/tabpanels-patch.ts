@@ -262,6 +262,34 @@ export function patchTabpanels(
         return;
       }
 
+      // The wrapper's private #tabs field can become stale after pane
+      // swaps (reorderSplitTabsForDesiredOrder updates DOM order but
+      // cannot touch the private field).  When #activate() later calls
+      // showSplitViewPanels(this.#tabs), the stale order would revert
+      // the swap.  Fix: prefer the wrapper's public `tabs` getter
+      // (DOM child order) which is always kept in sync by moveTabBefore.
+      const wrapper = gBrowser.activeSplitView;
+      if (wrapper) {
+        const domTabs = wrapper.tabs as SplitViewTab[];
+        if (domTabs.length === tabs.length && domTabs.length >= 2) {
+          const passedSet = new Set(tabs);
+          if (domTabs.every((t: SplitViewTab) => passedSet.has(t))) {
+            if (
+              domTabs.some(
+                (t: SplitViewTab, i: number) => t !== tabs[i],
+              )
+            ) {
+              logger.debug(
+                `[patch:showSplitViewPanels] corrected stale tab order to DOM order: ` +
+                  `passed=[${tabs.map((t) => t.linkedPanel).join(", ")}] ` +
+                  `dom=[${domTabs.map((t) => t.linkedPanel).join(", ")}]`,
+              );
+            }
+            tabs = domTabs;
+          }
+        }
+      }
+
       const validTabs = tabs.filter(
         (tab: SplitViewTab) => tab && tab.linkedBrowser,
       );
