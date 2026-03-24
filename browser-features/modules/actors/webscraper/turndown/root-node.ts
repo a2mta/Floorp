@@ -7,9 +7,9 @@
  * Root Node creation for Turndown
  */
 
-import collapseWhitespace from "./collapse-whitespace";
-import HTMLParser from "./html-parser";
-import { isBlock, isVoid } from "./utilities";
+import collapseWhitespace from "./collapse-whitespace.ts";
+import HTMLParser from "./html-parser.ts";
+import { isBlock, isVoid } from "./utilities.ts";
 
 interface TurndownOptions {
   preformattedCode: boolean;
@@ -26,7 +26,7 @@ function getHtmlParser(): HTMLParser {
 
 export default function RootNode(
   input: string | Element,
-  options: TurndownOptions,
+  options: TurndownOptions & { skipClone?: boolean },
 ): Element {
   let root: Element;
 
@@ -40,7 +40,9 @@ export default function RootNode(
 
     root = doc.getElementById("turndown-root")!;
   } else {
-    root = input.cloneNode(true) as Element;
+    // When the caller already provides a cloned tree (e.g. DOMReadOperations.getText),
+    // skip the clone to avoid duplicating the entire DOM tree.
+    root = options.skipClone ? input : (input.cloneNode(true) as Element);
   }
 
   collapseWhitespace({

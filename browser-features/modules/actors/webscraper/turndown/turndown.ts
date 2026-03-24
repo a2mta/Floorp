@@ -22,6 +22,7 @@ import wrapNode from "./node";
 import {
   formatFingerprintComment,
   formatSelectorMapEntry,
+  FingerprintTextCache,
   type ElementFingerprint,
 } from "./fingerprint";
 
@@ -65,14 +66,16 @@ export interface TurndownServiceOptions {
 }
 
 export class TurndownService {
-  private options: TurndownOptions;
+  options: TurndownOptions;
   rules: Rules;
   /** Collected fingerprints for selector map generation */
-  private collectedFingerprints: Array<{
+  collectedFingerprints: Array<{
     fingerprint: ElementFingerprint;
     tagName: string;
     textPreview: string;
   }> = [];
+  /** Pre-computed text cache for O(1) fingerprint text lookups */
+  textCache: FingerprintTextCache | undefined;
 
   constructor(options: TurndownServiceOptions = {}) {
     const defaults: TurndownOptions = {
@@ -94,9 +97,8 @@ export class TurndownService {
         return node.isBlock ? "\n\n" : "";
       },
       keepReplacement: function (content: string, node: ExtendedNode): string {
-        return node.isBlock
-          ? "\n\n" + (node as unknown as Element).outerHTML + "\n\n"
-          : (node as unknown as Element).outerHTML;
+        const html = (node as unknown as Element).outerHTML as unknown as string;
+        return node.isBlock ? "\n\n" + html + "\n\n" : html;
       },
       defaultReplacement: function (
         content: string,
@@ -119,7 +121,7 @@ export class TurndownService {
    * @param input The string or DOM node to convert
    * @returns A Markdown representation of the input
    */
-  turndown(input: string | Element): string {
+  turndown(input: string | Element, opts?: { skipClone?: boolean }): string {
     // Reset collected fingerprints for each conversion
     this.collectedFingerprints = [];
 
@@ -133,11 +135,32 @@ export class TurndownService {
       return "";
     }
 
-    const output = process.call(
-      this,
-      RootNode(input, this.options) as unknown as ParentNode,
-    );
+    // RootNode clones the input element (and applies collapseWhitespace),
+    // so the textCache must be built on the clone that process() will
+    // actually traverse — otherwise the WeakMap keys won't match.
+    const rootNode = RootNode(input, {
+      ...this.options,
+      skipClone: opts?.skipClone,
+    });
+    if (this.options.enableFingerprints && typeof input !== "string") {
+      this.textCache = new FingerprintTextCache();
+      this.textCache.precompute(rootNode);
+    } else {
+      this.textCache = undefined;
+    }
+
+    const output = process.call(this, rootNode as unknown as Node);
     let result = postProcess.call(this, output);
+
+    // Remove isolated fingerprint lines — lines that contain only fingerprint
+    // comment(s) with no other text. These occur when a parent block element
+    // has child text (passing the node.ts check) but its own Markdown output
+    // is empty because children render in their own blocks.
+    if (this.options.enableFingerprints) {
+      result = result.replace(/^[ \t]*(?:<!--fp:[a-z0-9]+-->[ \t]*)+$/gm, "");
+      // Collapse 3+ consecutive blank lines to 2
+      result = result.replace(/\n{3,}/g, "\n\n");
+    }
 
     // Append selector map if enabled and fingerprints were collected
     if (
@@ -228,14 +251,16 @@ export class TurndownService {
 /**
  * Reduces a DOM node down to its Markdown string equivalent
  */
-function process(parentNode: ParentNode): string {
+function process(this: TurndownService, parentNode: Node): string {
   const self = this;
   const childNodes = parentNode.childNodes
-    ? Array.from(parentNode.childNodes)
+    ? (Array.from(parentNode.childNodes) as Array<Node | null>).filter(
+        (n): n is Node => n !== null,
+      )
     : [];
 
-  return childNodes.reduce(function (output, node) {
-    const wrappedNode = wrapNode(node, self.options);
+  return childNodes.reduce(function (output: string, node: Node): string {
+    const wrappedNode = wrapNode(node, self.options, self.textCache);
 
     let replacement = "";
     if (wrappedNode.nodeType === 3) {
@@ -255,7 +280,7 @@ function process(parentNode: ParentNode): string {
 /**
  * Appends strings as each rule requires and trims the output
  */
-function postProcess(output: string): string {
+function postProcess(this: TurndownService, output: string): string {
   const self = this;
   self.rules.forEach(function (rule) {
     if (typeof rule.append === "function") {
@@ -269,10 +294,10 @@ function postProcess(output: string): string {
 /**
  * Converts an element node to its Markdown equivalent
  */
-function replacementForNode(node: ExtendedNode): string {
-  const self = this as TurndownService;
+function replacementForNode(this: TurndownService, node: ExtendedNode): string {
+  const self = this;
   const rule = this.rules.forNode(node);
-  let content = process.call(this, node as unknown as ParentNode);
+  let content = process.call(this, node as unknown as Node);
   const whitespace = node.flankingWhitespace;
   if (whitespace.leading || whitespace.trailing) {
     content = content.trim();
@@ -286,11 +311,8 @@ function replacementForNode(node: ExtendedNode): string {
 
     // Handle list markers specially - insert fingerprint after the marker
     // to avoid breaking Markdown list syntax (e.g., "- item" -> "- <!--fp:...-->item")
-    // Matches: optional leading whitespace, then "- ", "* ", "+ ", or "1. ", "2. ", etc.
     const listMarkerMatch = replacement.match(/^(\s*)([-*+]|\d+\.)(\s+)/);
     if (listMarkerMatch) {
-      // Insert fingerprint after the list marker and its space
-      // e.g., "- item" -> "- <!--fp:...-->item"
       replacement =
         listMarkerMatch[1] +
         listMarkerMatch[2] +
@@ -298,8 +320,17 @@ function replacementForNode(node: ExtendedNode): string {
         fpComment +
         replacement.slice(listMarkerMatch[0].length);
     } else {
-      // For other block elements, prepend fingerprint
-      replacement = fpComment + replacement;
+      // Insert fingerprint at the first non-whitespace position so it stays
+      // on the same line as content instead of becoming an isolated line.
+      const firstNonWS = replacement.search(/\S/);
+      if (firstNonWS > 0) {
+        replacement =
+          replacement.slice(0, firstNonWS) +
+          fpComment +
+          replacement.slice(firstNonWS);
+      } else {
+        replacement = fpComment + replacement;
+      }
     }
 
     // Collect fingerprint for selector map

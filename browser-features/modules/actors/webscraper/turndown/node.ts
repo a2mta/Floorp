@@ -17,6 +17,7 @@ import {
 import {
   generateFingerprint,
   type ElementFingerprint,
+  type FingerprintTextCache,
 } from "./fingerprint";
 
 export interface ExtendedNode extends Node {
@@ -37,7 +38,11 @@ interface NodeTurndownOptions {
   enableFingerprints?: boolean;
 }
 
-export default function wrapNode(node: Node, options: NodeTurndownOptions): ExtendedNode {
+export default function wrapNode(
+  node: Node,
+  options: NodeTurndownOptions,
+  textCache?: FingerprintTextCache,
+): ExtendedNode {
   const extended = node as ExtendedNode;
   extended.isBlock = isBlock(node);
   const parentNode = node.parentNode as unknown as ExtendedNode | null;
@@ -46,12 +51,31 @@ export default function wrapNode(node: Node, options: NodeTurndownOptions): Exte
   extended.flankingWhitespace = flankingWhitespace(node, options);
 
   // Generate fingerprint for block elements only (performance optimization)
-  // Fingerprints are only used for block elements in the output
+  // Skip empty elements and elements inside table cells to reduce noise.
   if (options.enableFingerprints && node.nodeType === 1 && extended.isBlock) { // Node.ELEMENT_NODE
-    extended.fingerprint = generateFingerprint(node as Element);
+    const el = node as Element;
+    const text = el.textContent?.trim();
+    if (text && text.length > 0 && !isInsideTableCell(el)) {
+      extended.fingerprint = generateFingerprint(el, {}, textCache);
+    }
   }
 
   return extended;
+}
+
+/**
+ * Returns true if the element is inside a table cell (<td> or <th>).
+ * Table row-level fingerprints are preserved; only cell-interior ones are skipped.
+ */
+function isInsideTableCell(el: Element): boolean {
+  let parent = el.parentElement;
+  while (parent) {
+    const tag = parent.nodeName;
+    if (tag === "TD" || tag === "TH") return true;
+    if (tag === "TABLE" || tag === "BODY") return false;
+    parent = parent.parentElement;
+  }
+  return false;
 }
 
 function isBlank(node: Node): boolean {

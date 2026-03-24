@@ -34,6 +34,11 @@ interface WebScraperActor {
 
 // Global sets to prevent garbage collection of active components
 const SCRAPER_ACTOR_SETS: Set<XULBrowserElement> = new Set();
+
+function _perfLog(label: string, ms: number) {
+  if (!Services.prefs.getBoolPref("floorp.os.perf.log", false)) return;
+  console.debug(`[Floorp OS-Perf] IPC ${label} ${ms}ms`);
+}
 const FRAME = new HiddenFrame();
 
 /**
@@ -66,6 +71,33 @@ class webScraper {
       ) as WebScraperActor | undefined;
     }
     return actor ?? null;
+  }
+
+  /**
+   * Common helper: get browser → get actor → sendQuery.
+   * Reduces boilerplate across all service methods.
+   */
+  private async withActor<T>(
+    instanceId: string,
+    queryName: string,
+    data?: object,
+    fallback: T | null = null,
+  ): Promise<T | null> {
+    const browser = this._browserInstances.get(instanceId);
+    if (!browser) {
+      throw new Error(`Browser not found for instance ${instanceId}`);
+    }
+    try {
+      const actor = await this._getActorForBrowser(browser);
+      if (!actor) return fallback;
+      const _t0 = Date.now();
+      const result = (await actor.sendQuery(queryName, data)) as T;
+      _perfLog(queryName, Date.now() - _t0);
+      return result;
+    } catch (e) {
+      console.error(`Error in ${queryName}:`, e);
+      return fallback;
+    }
   }
 
   /**
@@ -316,7 +348,10 @@ class webScraper {
    * @returns Promise<string | null> - The HTML content as a string, or null if unavailable
    * @throws Error - If the browser instance is not found
    */
-  public async getHTML(instanceId: string): Promise<string | null> {
+  public async getHTML(
+    instanceId: string,
+    options?: { selector?: string },
+  ): Promise<string | null> {
     const browser = this._browserInstances.get(instanceId);
     if (!browser) {
       throw new Error(`Browser not found for instance ${instanceId}`);
@@ -325,7 +360,10 @@ class webScraper {
     try {
       const actor = await this._getActorForBrowser(browser);
       if (!actor) return null;
-      return (await actor.sendQuery("WebScraper:GetHTML")) as string | null;
+      return (await actor.sendQuery(
+        "WebScraper:GetHTML",
+        options ?? {},
+      )) as string | null;
     } catch (e) {
       console.error("Error getting HTML:", e);
       return null;
@@ -350,19 +388,31 @@ class webScraper {
    */
   public async getText(
     instanceId: string,
-    includeSelectorMap: boolean = false,
+    options:
+      | boolean
+      | {
+          mode?: "full" | "scoped" | "visible";
+          selector?: string;
+          viewportMargin?: number;
+          enableFingerprints?: boolean;
+          includeSelectorMap?: boolean;
+        } = false,
   ): Promise<string | null> {
     const browser = this._browserInstances.get(instanceId);
     if (!browser) {
       throw new Error(`Browser not found for instance ${instanceId}`);
     }
 
+    // Normalize: boolean → old-style { includeSelectorMap }
+    const data =
+      typeof options === "boolean" ? { includeSelectorMap: options } : options;
+
     try {
       const actor = await this._getActorForBrowser(browser);
       if (!actor) return null;
-      return (await actor.sendQuery("WebScraper:GetText", {
-        includeSelectorMap,
-      })) as string | null;
+      return (await actor.sendQuery("WebScraper:GetText", data)) as
+        | string
+        | null;
     } catch (e) {
       console.error("Error getting text:", e);
       return null;
@@ -386,6 +436,51 @@ class webScraper {
    * @returns Promise<string | null> - The element's HTML content, or null if not found
    * @throws Error - If the browser instance is not found
    */
+  public async getAccessibilityTree(
+    instanceId: string,
+    options: { interestingOnly?: boolean; root?: string } = {},
+  ): Promise<unknown> {
+    const browser = this._browserInstances.get(instanceId);
+    if (!browser) {
+      throw new Error(`Browser not found for instance ${instanceId}`);
+    }
+    try {
+      const actor = await this._getActorForBrowser(browser);
+      if (!actor) return null;
+      return await actor.sendQuery("WebScraper:GetAccessibilityTree", options);
+    } catch (e) {
+      console.error("Error getting accessibility tree:", e);
+      return null;
+    }
+  }
+
+  public async getArticle(
+    instanceId: string,
+  ): Promise<{
+    title: string;
+    byline: string;
+    markdown: string;
+    length: number;
+  } | null> {
+    const browser = this._browserInstances.get(instanceId);
+    if (!browser) {
+      throw new Error(`Browser not found for instance ${instanceId}`);
+    }
+    try {
+      const actor = await this._getActorForBrowser(browser);
+      if (!actor) return null;
+      return (await actor.sendQuery("WebScraper:GetArticle")) as {
+        title: string;
+        byline: string;
+        markdown: string;
+        length: number;
+      } | null;
+    } catch (e) {
+      console.error("Error getting article:", e);
+      return null;
+    }
+  }
+
   public async getElement(
     instanceId: string,
     selector: string,
@@ -1462,8 +1557,25 @@ class webScraper {
    */
   public waitForNetworkIdle(
     instanceId: string,
-    timeout: number = AutomationConstants.NETWORK_IDLE_TIMEOUT_MS,
+    options:
+      | number
+      | {
+          timeout?: number;
+          maxInflight?: number;
+          idleDuration?: number;
+          ignorePatterns?: string[];
+        } = {},
   ): Promise<boolean | null> {
+    // Backward compatibility: number → { timeout }
+    const opts =
+      typeof options === "number" ? { timeout: options } : options;
+    const {
+      timeout = AutomationConstants.NETWORK_IDLE_TIMEOUT_MS,
+      maxInflight = 0,
+      idleDuration = AutomationConstants.NETWORK_IDLE_THRESHOLD_MS,
+      ignorePatterns = [],
+    } = opts;
+
     const browser = this._browserInstances.get(instanceId);
     if (!browser) {
       throw new Error(`Browser not found for instance ${instanceId}`);
@@ -1474,13 +1586,15 @@ class webScraper {
       return Promise.resolve(null);
     }
 
-    const idleThreshold = AutomationConstants.NETWORK_IDLE_THRESHOLD_MS;
+    // Pre-compile ignore patterns
+    const ignoreRegexps = ignorePatterns.map((p) => new RegExp(p));
 
     return new Promise((resolve) => {
       const state = {
         pollTimer: null as ReturnType<typeof setTimeout> | null,
         resolved: false,
         startTime: Date.now(),
+        idleSince: 0,
       };
 
       const cleanup = () => {
@@ -1493,17 +1607,37 @@ class webScraper {
       const poll = () => {
         if (state.resolved) return;
 
-        const activeCount = GlobalHTTPTracker.getActiveCount(bcid);
+        let activeCount = GlobalHTTPTracker.getActiveCount(bcid);
+
+        // Subtract requests matching ignore patterns
+        if (ignoreRegexps.length > 0 && activeCount > 0) {
+          const activeUrls = GlobalHTTPTracker.getActiveURLs?.(bcid) ?? [];
+          const ignored = activeUrls.filter((url: string) =>
+            ignoreRegexps.some((re) => re.test(url)),
+          );
+          activeCount = Math.max(0, activeCount - ignored.length);
+        }
+
         const elapsed = Date.now() - state.startTime;
 
-        if (activeCount === 0) {
-          console.log(
-            `[WebScraper] Network idle for BCID ${bcid} after ${elapsed}ms`,
-          );
-          state.resolved = true;
-          cleanup();
-          resolve(true);
-        } else if (elapsed >= timeout) {
+        if (activeCount <= maxInflight) {
+          if (state.idleSince === 0) {
+            state.idleSince = Date.now();
+          }
+          if (Date.now() - state.idleSince >= idleDuration) {
+            console.log(
+              `[WebScraper] Network idle for BCID ${bcid} after ${elapsed}ms`,
+            );
+            state.resolved = true;
+            cleanup();
+            resolve(true);
+            return;
+          }
+        } else {
+          state.idleSince = 0;
+        }
+
+        if (elapsed >= timeout) {
           console.log(
             `[WebScraper] waitForNetworkIdle timed out. Active: ${activeCount}`,
           );
@@ -1511,12 +1645,10 @@ class webScraper {
           cleanup();
           resolve(false);
         } else {
-          // Continue polling
-          state.pollTimer = setTimeout(poll, idleThreshold);
+          state.pollTimer = setTimeout(poll, 100);
         }
       };
 
-      // Start polling
       poll();
     });
   }

@@ -30,11 +30,11 @@ export function registerTabRoutes(api: NamespaceBuilder): void {
   api.namespace("/tabs", (t: NamespaceBuilder) => {
     // -- Tab-specific routes --
 
-    // Check if instance exists
+    // Check if instance exists (lightweight — no IPC, no DOM access)
     t.get("/instances/:id/exists", async (ctx: RouterContext) => {
       const { TabManagerServices } = TabManagerModule();
-      const info = await TabManagerServices.getInstanceInfo(ctx.params.id);
-      return { status: 200, body: { exists: info != null } };
+      const exists = TabManagerServices.hasInstance(ctx.params.id);
+      return { status: 200, body: { exists } };
     });
 
     // List all tabs
@@ -46,11 +46,17 @@ export function registerTabRoutes(api: NamespaceBuilder): void {
 
     // Create a new tab instance (URL required)
     t.post<
-      { url: string; inBackground?: boolean },
+      { url: string; inBackground?: boolean; waitForLoad?: boolean },
       { instanceId: string } | ErrorResponse
     >(
       "/instances",
-      async (ctx: RouterContext<{ url: string; inBackground?: boolean }>) => {
+      async (
+        ctx: RouterContext<{
+          url: string;
+          inBackground?: boolean;
+          waitForLoad?: boolean;
+        }>,
+      ) => {
         const json = ctx.json();
         if (!json?.url) {
           return { status: 400, body: { error: "url required" } };
@@ -58,6 +64,7 @@ export function registerTabRoutes(api: NamespaceBuilder): void {
         const { TabManagerServices } = TabManagerModule();
         const id = await TabManagerServices.createInstance(json.url, {
           inBackground: json.inBackground ?? true,
+          waitForLoad: json.waitForLoad,
         });
         return { status: 200, body: { instanceId: id } };
       },

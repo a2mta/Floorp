@@ -10,12 +10,15 @@
 import type {
   InputElementOptions,
   SelectOptionOptions,
+  GetTextOptions,
+  ClickElementOptions,
   WebScraperContext,
 } from "./types.ts";
 import { HighlightManager } from "./HighlightManager.ts";
 import { EventDispatcher } from "./EventDispatcher.ts";
 import { TranslationHelper } from "./TranslationHelper.ts";
 import type { DOMOpsDeps } from "./DOMDeps.ts";
+import { deepQuerySelector } from "./utils.ts";
 import { DOMReadOperations } from "./DOMReadOperations.ts";
 import { DOMWriteOperations } from "./DOMWriteOperations.ts";
 import { DOMActionOperations } from "./DOMActionOperations.ts";
@@ -71,8 +74,12 @@ export class DOMOperations {
   }
 
   // Read ops
-  getHTML(): string | null {
-    return this.readOps.getHTML();
+  getHTML(options?: { selector?: string }): string | null {
+    return this.readOps.getHTML(options);
+  }
+
+  getArticle() {
+    return this.readOps.getArticle();
   }
 
   getElement(selector: string): string | null {
@@ -120,8 +127,24 @@ export class DOMOperations {
    * Converts HTML to Markdown format, preserving headings, lists, links,
    * and other formatting while excluding hidden elements.
    */
-  getText(includeSelectorMap: boolean = false): string | null {
-    return this.readOps.getText(includeSelectorMap);
+  getText(options: GetTextOptions | boolean = {}): string | null {
+    return this.readOps.getText(options);
+  }
+
+  /**
+   * Resolves a fingerprint to a CSS selector.
+   */
+  resolveFingerprint(fingerprint: string): string | null {
+    return this.readOps.resolveFingerprint(fingerprint);
+  }
+
+  /**
+   * Builds an accessibility tree from DOM.
+   */
+  getAccessibilityTree(
+    options?: { interestingOnly?: boolean; root?: string },
+  ) {
+    return this.readOps.getAccessibilityTree(options);
   }
 
   // Write/input ops
@@ -170,8 +193,11 @@ export class DOMOperations {
   }
 
   // Interaction ops
-  clickElement(selector: string): Promise<boolean> {
-    return this.actionOps.clickElement(selector);
+  clickElement(
+    selector: string,
+    options?: ClickElementOptions,
+  ): Promise<boolean> {
+    return this.actionOps.clickElement(selector, options);
   }
 
   hoverElement(selector: string): Promise<boolean> {
@@ -230,7 +256,7 @@ export class DOMOperations {
         return false;
       }
 
-      const element = doc.querySelector(selector);
+      const element = deepQuerySelector(doc, selector);
       if (!element) {
         console.warn(
           `DOMOperations: Element not found for dispatchEvent: ${selector}`,
