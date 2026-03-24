@@ -121,7 +121,7 @@ export class TurndownService {
    * @param input The string or DOM node to convert
    * @returns A Markdown representation of the input
    */
-  turndown(input: string | Element): string {
+  turndown(input: string | Element, opts?: { skipClone?: boolean }): string {
     // Reset collected fingerprints for each conversion
     this.collectedFingerprints = [];
 
@@ -138,7 +138,10 @@ export class TurndownService {
     // RootNode clones the input element (and applies collapseWhitespace),
     // so the textCache must be built on the clone that process() will
     // actually traverse — otherwise the WeakMap keys won't match.
-    const rootNode = RootNode(input, this.options);
+    const rootNode = RootNode(input, {
+      ...this.options,
+      skipClone: opts?.skipClone,
+    });
     if (this.options.enableFingerprints && typeof input !== "string") {
       this.textCache = new FingerprintTextCache();
       this.textCache.precompute(rootNode);

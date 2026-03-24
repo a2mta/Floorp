@@ -18,6 +18,7 @@ import { HighlightManager } from "./HighlightManager.ts";
 import { EventDispatcher } from "./EventDispatcher.ts";
 import { TranslationHelper } from "./TranslationHelper.ts";
 import type { DOMOpsDeps } from "./DOMDeps.ts";
+import { deepQuerySelector } from "./utils.ts";
 import { DOMReadOperations } from "./DOMReadOperations.ts";
 import { DOMWriteOperations } from "./DOMWriteOperations.ts";
 import { DOMActionOperations } from "./DOMActionOperations.ts";
@@ -255,7 +256,7 @@ export class DOMOperations {
         return false;
       }
 
-      const element = doc.querySelector(selector);
+      const element = deepQuerySelector(doc, selector);
       if (!element) {
         console.warn(
           `DOMOperations: Element not found for dispatchEvent: ${selector}`,

@@ -5,7 +5,12 @@
 
 import type { DOMOpsDeps } from "./DOMDeps.ts";
 import type { GetTextOptions, AXNode } from "./types.ts";
-import { unwrapElement, isElementVisible } from "./utils.ts";
+import {
+  unwrapElement,
+  isElementVisible,
+  deepQuerySelector,
+  deepQuerySelectorAll,
+} from "./utils.ts";
 import { TurndownService } from "./turndown/index.ts";
 import { findElementByFingerprint } from "./turndown/fingerprint.ts";
 
@@ -62,7 +67,7 @@ export class DOMReadOperations {
 
       // Scoped mode: return only the matching element's outerHTML
       if (options?.selector) {
-        const el = doc.querySelector(options.selector);
+        const el = deepQuerySelector(doc, options.selector);
         return el ? el.outerHTML : null;
       }
 
@@ -91,21 +96,55 @@ export class DOMReadOperations {
       const doc = this.document;
       if (!doc) return null;
 
-      // Readability mutates the DOM, so work on a clone
-      const clone = doc.cloneNode(true) as Document;
+      // Readability requires a non-Xray document. Serialize to HTML string
+      // and re-parse via DOMParser to get a clean document in this compartment.
+      const html = doc.documentElement?.outerHTML;
+      if (!html) return null;
+      const parser = new DOMParser();
+      const clone = parser.parseFromString(html, "text/html");
 
-      // Import Firefox's built-in Readability
-      const { Readability } = ChromeUtils.importESModule(
-        "resource://gre/modules/reader/Readability.sys.mjs",
-      );
+      // Carry over the document URI so Readability can resolve relative URLs
+      Object.defineProperty(clone, "documentURI", {
+        value: doc.documentURI || doc.URL,
+      });
+
+      // Load Firefox's built-in Readability (non-ESM)
+      // Try multiple paths: moz-src (dev build), resource:// (release build)
+      const readabilityScope: Record<string, unknown> = {};
+      const paths = [
+        "moz-src:///toolkit/components/reader/readability/Readability.js",
+        "resource://gre/modules/reader/Readability.js",
+        "chrome://global/content/reader/Readability.js",
+      ];
+      let loaded = false;
+      for (const path of paths) {
+        try {
+          Services.scriptloader.loadSubScript(path, readabilityScope);
+          loaded = true;
+          break;
+        } catch {
+          // Try next path
+        }
+      }
+      if (!loaded || !readabilityScope.Readability) {
+        console.error("DOMReadOperations: Could not load Readability from any path");
+        return null;
+      }
+      const Readability = readabilityScope.Readability as new (
+        doc: Document,
+        opts?: Record<string, unknown>,
+      ) => { parse(): Record<string, unknown> | null };
 
       const reader = new Readability(clone, { charThreshold: 100 });
       const article = reader.parse();
       if (!article) return null;
 
-      // Convert article HTML to Markdown
-      const tempContainer = doc.createElement("div");
-      tempContainer.innerHTML = article.content;
+      // Convert article HTML to Markdown via DOMParser to avoid CSP restrictions
+      const articleDoc = new DOMParser().parseFromString(
+        `<div>${article.content as string}</div>`,
+        "text/html",
+      );
+      const tempContainer = articleDoc.body.firstElementChild ?? articleDoc.body;
       const markdown = this.plainConverter.turndown(tempContainer);
 
       return {
@@ -122,7 +161,9 @@ export class DOMReadOperations {
 
   getElement(selector: string): string | null {
     try {
-      const element = this.document?.querySelector(selector) ?? null;
+      const doc = this.document;
+      if (!doc) return null;
+      const element = deepQuerySelector(doc, selector);
       if (element) {
         this.deps.highlightManager.runAsyncInspection(
           element,
@@ -140,12 +181,9 @@ export class DOMReadOperations {
 
   getElements(selector: string): string[] {
     try {
-      const nodeList = this.document?.querySelectorAll(selector) as
-        | NodeListOf<Element>
-        | undefined;
-      if (!nodeList) return [];
-
-      const elements = Array.from(nodeList) as Element[];
+      const doc = this.document;
+      if (!doc) return [];
+      const elements = deepQuerySelectorAll(doc, selector);
       if (elements.length === 0) return [];
 
       // Run async inspection with found elements
@@ -217,7 +255,9 @@ export class DOMReadOperations {
 
   getElementText(selector: string): string | null {
     try {
-      const element = this.document?.querySelector(selector) as Element | null;
+      const doc = this.document;
+      if (!doc) return null;
+      const element = deepQuerySelector(doc, selector) as Element | null;
       if (element) {
         this.deps.highlightManager.runAsyncInspection(
           element,
@@ -240,7 +280,9 @@ export class DOMReadOperations {
 
   async getValue(selector: string): Promise<string | null> {
     try {
-      const element = this.document?.querySelector(selector) as
+      const doc = this.document;
+      if (!doc) return null;
+      const element = deepQuerySelector(doc, selector) as
         | HTMLInputElement
         | HTMLTextAreaElement
         | HTMLSelectElement
@@ -282,7 +324,9 @@ export class DOMReadOperations {
 
   getAttribute(selector: string, attributeName: string): string | null {
     try {
-      const element = this.document?.querySelector(selector) as Element | null;
+      const doc = this.document;
+      if (!doc) return null;
+      const element = deepQuerySelector(doc, selector) as Element | null;
       if (element) {
         this.deps.highlightManager.runAsyncInspection(
           element,
@@ -331,7 +375,9 @@ export class DOMReadOperations {
 
   isVisible(selector: string): boolean {
     try {
-      const element = this.document?.querySelector(selector) as HTMLElement | null;
+      const doc = this.document;
+      if (!doc) return false;
+      const element = deepQuerySelector(doc, selector) as HTMLElement | null;
       if (!element) return false;
       const win = this.contentWindow;
       if (!win) return false;
@@ -344,9 +390,9 @@ export class DOMReadOperations {
 
   isEnabled(selector: string): boolean {
     try {
-      const element = this.document?.querySelector(
-        selector,
-      ) as HTMLElement | null;
+      const doc = this.document;
+      if (!doc) return false;
+      const element = deepQuerySelector(doc, selector) as HTMLElement | null;
       if (!element) return false;
 
       if ("disabled" in element) {
@@ -413,7 +459,7 @@ export class DOMReadOperations {
         case "scoped":
           if (!selector) return null;
           {
-            const scoped = doc.querySelector(selector);
+            const scoped = deepQuerySelector(doc, selector);
             if (!scoped) return null;
             root = scoped.cloneNode(true) as Element;
           }
@@ -445,7 +491,9 @@ export class DOMReadOperations {
         converter = this.plainConverter;
       }
 
-      const markdown = converter.turndown(root);
+      // The root is already a cloned subtree — tell Turndown to skip its
+      // internal cloneNode(true) to avoid duplicating the entire DOM tree.
+      const markdown = converter.turndown(root, { skipClone: true });
       if (!markdown) return null;
 
       let result = markdown;
@@ -454,7 +502,7 @@ export class DOMReadOperations {
       if (mode !== "visible") {
         const originalRoot =
           mode === "scoped" && selector
-            ? doc.querySelector(selector) || doc.body
+            ? deepQuerySelector(doc, selector) || doc.body
             : doc.body;
 
         const shadowText = this.getTextFromShadowDOM(originalRoot);
@@ -651,7 +699,7 @@ export class DOMReadOperations {
     if (!doc) return null;
 
     const rootEl = rootSelector
-      ? doc.querySelector(rootSelector)
+      ? deepQuerySelector(doc, rootSelector)
       : doc.body;
     if (!rootEl) return null;
 
@@ -823,7 +871,8 @@ export class DOMReadOperations {
         el instanceof win.HTMLSelectElement ||
         el instanceof win.HTMLTextAreaElement)
     ) {
-      const label = this.document?.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      const doc = this.document;
+      const label = doc ? deepQuerySelector(doc, `label[for="${CSS.escape(el.id)}"]`) : null;
       if (label) return label.textContent?.trim() || "";
     }
 
@@ -905,7 +954,7 @@ export class DOMReadOperations {
     let text = "";
 
     try {
-      const iframes = doc.querySelectorAll("iframe");
+      const iframes = deepQuerySelectorAll(doc, "iframe");
 
       for (const iframe of iframes) {
         try {

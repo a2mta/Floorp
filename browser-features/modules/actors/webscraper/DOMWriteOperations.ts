@@ -5,7 +5,12 @@
 
 import type { DOMOpsDeps } from "./DOMDeps.ts";
 import type { RawContentWindow } from "./types.ts";
-import { unwrapDocument, unwrapElement, unwrapWindow } from "./utils.ts";
+import {
+  unwrapDocument,
+  unwrapElement,
+  unwrapWindow,
+  deepQuerySelector,
+} from "./utils.ts";
 
 const { setTimeout: timerSetTimeout } = ChromeUtils.importESModule(
   "resource://gre/modules/Timer.sys.mjs",
@@ -23,6 +28,11 @@ export class DOMWriteOperations {
 
   private get document(): Document | null {
     return this.deps.getDocument();
+  }
+
+  private deepQuery(selector: string): Element | null {
+    const doc = this.document;
+    return doc ? deepQuerySelector(doc, selector) : null;
   }
 
   private tryExecCommand(
@@ -107,7 +117,7 @@ export class DOMWriteOperations {
     } = {},
   ): Promise<boolean> {
     try {
-      const element = this.document?.querySelector(selector) as
+      const element = this.deepQuery(selector) as
         | HTMLInputElement
         | HTMLTextAreaElement
         | HTMLSelectElement
@@ -243,7 +253,7 @@ export class DOMWriteOperations {
 
   async clearInput(selector: string): Promise<boolean> {
     try {
-      const element = this.document?.querySelector(selector) as
+      const element = this.deepQuery(selector) as
         | HTMLInputElement
         | HTMLTextAreaElement
         | null;
@@ -288,9 +298,7 @@ export class DOMWriteOperations {
     opts: { skipHighlight?: boolean } = {},
   ): Promise<boolean> {
     try {
-      const element = this.document?.querySelector(
-        selector,
-      ) as HTMLSelectElement | null;
+      const element = this.deepQuery(selector) as HTMLSelectElement | null;
       if (!element) return false;
 
       if (element.tagName !== "SELECT") return false;
@@ -350,9 +358,7 @@ export class DOMWriteOperations {
 
   async setChecked(selector: string, checked: boolean): Promise<boolean> {
     try {
-      const element = this.document?.querySelector(
-        selector,
-      ) as HTMLInputElement | null;
+      const element = this.deepQuery(selector) as HTMLInputElement | null;
       if (!element) return false;
 
       if (element.tagName !== "INPUT") return false;
@@ -439,9 +445,7 @@ export class DOMWriteOperations {
       // SECURITY WARNING: This method accepts file paths from external sources.
       // The parent process validates paths, but callers should only use trusted paths.
 
-      const element = this.document?.querySelector(
-        selector,
-      ) as HTMLInputElement | null;
+      const element = this.deepQuery(selector) as HTMLInputElement | null;
 
       if (!element || element.tagName !== "INPUT" || element.type !== "file") {
         return false;
@@ -608,7 +612,7 @@ export class DOMWriteOperations {
       const doc = this.document;
       if (!doc) return false;
 
-      const element = doc.querySelector(selector) as HTMLElement | null;
+      const element = deepQuerySelector(doc, selector) as HTMLElement | null;
       if (!element) {
         console.warn(
           `DOMWriteOperations: Element not found for dispatchTextInput: ${selector}`,
@@ -714,7 +718,7 @@ export class DOMWriteOperations {
         return false;
       }
 
-      const element = doc.querySelector(selector) as HTMLElement | null;
+      const element = deepQuerySelector(doc, selector) as HTMLElement | null;
       if (!element) {
         console.warn(
           `DOMWriteOperations: Element not found for setInnerHTML: ${selector}`,
@@ -805,7 +809,7 @@ export class DOMWriteOperations {
         return false;
       }
 
-      const element = doc.querySelector(selector) as HTMLElement | null;
+      const element = deepQuerySelector(doc, selector) as HTMLElement | null;
       if (!element) {
         console.warn(
           `DOMWriteOperations: Element not found for setTextContent: ${selector}`,

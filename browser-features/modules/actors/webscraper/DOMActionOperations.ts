@@ -5,7 +5,7 @@
 
 import type { DOMOpsDeps } from "./DOMDeps.ts";
 import type { ClickElementOptions } from "./types.ts";
-import { unwrapElement, unwrapWindow } from "./utils.ts";
+import { unwrapElement, unwrapWindow, deepQuerySelector } from "./utils.ts";
 
 const { setTimeout: timerSetTimeout } = ChromeUtils.importESModule(
   "resource://gre/modules/Timer.sys.mjs",
@@ -23,6 +23,12 @@ export class DOMActionOperations {
 
   private get document(): Document | null {
     return this.deps.getDocument();
+  }
+
+  /** querySelector that pierces shadow DOM */
+  private deepQuery(selector: string): Element | null {
+    const doc = this.document;
+    return doc ? deepQuerySelector(doc, selector) : null;
   }
 
   /**
@@ -51,6 +57,7 @@ export class DOMActionOperations {
       clickCount = 1,
       force = false,
       timeout = 5000,
+      stabilityTimeout = 100,
     } = options;
     const startTime = Date.now();
     const MAX_RETRIES = 3;
@@ -59,7 +66,7 @@ export class DOMActionOperations {
       if (Date.now() - startTime > timeout) return false;
 
       try {
-        const el = this.document?.querySelector(selector) as HTMLElement | null;
+        const el = this.deepQuery(selector) as HTMLElement | null;
         if (!el) {
           await this.delay(100);
           continue;
@@ -105,13 +112,15 @@ export class DOMActionOperations {
           el.scrollIntoView({ block: "center", behavior: "instant" as ScrollBehavior });
           await this.delay(50);
 
-          // Wait for stable position
-          const remaining = Math.min(
-            1000,
-            timeout - (Date.now() - startTime),
-          );
-          const stable = await this.waitForStable(el, remaining);
-          if (!stable) continue;
+          // Wait for stable position (skip if stabilityTimeout is 0)
+          if (stabilityTimeout > 0) {
+            const remaining = Math.min(
+              1000,
+              timeout - (Date.now() - startTime),
+            );
+            const stable = await this.waitForStable(el, remaining, stabilityTimeout);
+            if (!stable) continue;
+          }
 
         }
 
@@ -217,10 +226,11 @@ export class DOMActionOperations {
   private async waitForStable(
     el: HTMLElement,
     timeout: number,
+    delay: number = 100,
   ): Promise<boolean> {
     const initialRect = el.getBoundingClientRect();
     await new Promise<void>((resolve) =>
-      timerSetTimeout(resolve, Math.min(100, timeout)),
+      timerSetTimeout(resolve, Math.min(delay, timeout)),
     );
     const finalRect = el.getBoundingClientRect();
     const dx = Math.abs(finalRect.x - initialRect.x);
@@ -236,9 +246,7 @@ export class DOMActionOperations {
 
   async hoverElement(selector: string): Promise<boolean> {
     try {
-      const element = this.document?.querySelector(
-        selector,
-      ) as HTMLElement | null;
+      const element = this.deepQuery(selector) as HTMLElement | null;
       if (!element) return false;
 
       const elementInfo = await this.deps.translationHelper.translate(
@@ -309,9 +317,7 @@ export class DOMActionOperations {
 
   async scrollToElement(selector: string): Promise<boolean> {
     try {
-      const element = this.document?.querySelector(
-        selector,
-      ) as HTMLElement | null;
+      const element = this.deepQuery(selector) as HTMLElement | null;
       if (!element) return false;
 
       const elementInfo = await this.deps.translationHelper.translate(
@@ -343,7 +349,7 @@ export class DOMActionOperations {
 
   async focusElement(selector: string): Promise<boolean> {
     try {
-      const element = this.document?.querySelector(selector) as HTMLElement;
+      const element = this.deepQuery(selector) as HTMLElement;
       if (!element) return false;
 
       this.deps.eventDispatcher.scrollIntoViewIfNeeded(element);
@@ -485,12 +491,8 @@ export class DOMActionOperations {
     targetSelector: string,
   ): Promise<boolean> {
     try {
-      const source = this.document?.querySelector(
-        sourceSelector,
-      ) as HTMLElement;
-      const target = this.document?.querySelector(
-        targetSelector,
-      ) as HTMLElement;
+      const source = this.deepQuery(sourceSelector) as HTMLElement;
+      const target = this.deepQuery(targetSelector) as HTMLElement;
 
       if (!source || !target) return false;
 

@@ -415,6 +415,7 @@ export function registerCommonAutomationRoutes(
         button?: "left" | "right" | "middle";
         clickCount?: number;
         force?: boolean;
+        stabilityTimeout?: number;
       } | null;
       const service = getService();
       const resolved = await resolveSelectorOrFingerprint(
@@ -427,6 +428,12 @@ export function registerCommonAutomationRoutes(
       const okClicked = await service.clickElement(
         ctx.params.id,
         resolved.selector,
+        {
+          button: json?.button,
+          clickCount: json?.clickCount,
+          force: json?.force,
+          stabilityTimeout: json?.stabilityTimeout,
+        },
       );
       return { status: 200, body: { ok: okClicked ?? false } };
     }),

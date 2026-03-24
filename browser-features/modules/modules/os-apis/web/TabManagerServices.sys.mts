@@ -381,14 +381,7 @@ class TabManager {
         if (resolved) return;
         console.warn("TabManager: _waitForLoad timed out after 30 seconds");
         resolved = true;
-        PROGRESS_LISTENERS.delete(progressListener);
-        try {
-          browser.webProgress.removeProgressListener(
-            progressListener as nsIWebProgressListener,
-          );
-        } catch {
-          // Listener may already be removed
-        }
+        cleanup();
         resolve();
       }, 30000);
       const complete = async () => {
@@ -431,6 +424,18 @@ class TabManager {
         resolve();
       };
 
+      const cleanup = () => {
+        PROGRESS_LISTENERS.delete(progressListener);
+        try {
+          browser.webProgress.removeProgressListener(
+            progressListener as nsIWebProgressListener,
+          );
+        } catch {
+          // Listener may already be removed
+        }
+        clearTimeout(timeoutId);
+      };
+
       const progressListener = {
         onLocationChange(
           progress: nsIWebProgress,
@@ -438,20 +443,28 @@ class TabManager {
           location: nsIURI,
           flags: number,
         ) {
+          if (!progress.isTopLevel) return;
           if (
-            !progress.isTopLevel ||
-            flags &
-              (Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT ?? 0) ||
-            (location.spec === "about:blank" && uri.spec !== "about:blank")
+            location.spec === "about:blank" &&
+            uri.spec !== "about:blank"
           ) {
             return;
           }
 
-          PROGRESS_LISTENERS.delete(progressListener);
-          browser.webProgress.removeProgressListener(
-            progressListener as nsIWebProgressListener,
+          const isSameDocument = !!(
+            flags &
+            (Ci.nsIWebProgressListener.LOCATION_CHANGE_SAME_DOCUMENT ?? 0)
           );
-          clearTimeout(timeoutId);
+
+          if (isSameDocument) {
+            // SPA navigation (pushState / hash change) — resolve after short
+            // delay to let the framework render the new view.
+            cleanup();
+            setTimeout(() => complete(), 500);
+            return;
+          }
+
+          cleanup();
           complete();
         },
         onStateChange(
@@ -463,11 +476,7 @@ class TabManager {
           if (!progress.isTopLevel) return;
           const STATE_STOP = Ci.nsIWebProgressListener.STATE_STOP ?? 0;
           if (flags & STATE_STOP) {
-            PROGRESS_LISTENERS.delete(progressListener);
-            browser.webProgress.removeProgressListener(
-              progressListener as nsIWebProgressListener,
-            );
-            clearTimeout(timeoutId);
+            cleanup();
             complete();
           }
         },
@@ -529,7 +538,7 @@ class TabManager {
 
   public async createInstance(
     url: string,
-    options?: { inBackground?: boolean },
+    options?: { inBackground?: boolean; waitForLoad?: boolean },
   ): Promise<string> {
     const win = getBrowserWindow() as Window & { gBrowser: GBrowser };
     const gBrowser = win.gBrowser;
@@ -541,7 +550,10 @@ class TabManager {
     });
 
     const browser = tab.linkedBrowser;
-    await this._waitForLoad(browser, url);
+
+    if (options?.waitForLoad !== false) {
+      await this._waitForLoad(browser, url);
+    }
 
     // Check tab is still alive (user may have closed it during load)
     const currentBrowser = tab.linkedBrowser;
@@ -563,7 +575,14 @@ class TabManager {
     }
 
     // Show control overlay to block user interaction
-    await this._queryActor(instanceId, "WebScraper:ShowControlOverlay");
+    if (options?.waitForLoad !== false) {
+      await this._queryActor(instanceId, "WebScraper:ShowControlOverlay");
+    } else {
+      // Fire and forget — actor may not be ready yet
+      this._queryActor(instanceId, "WebScraper:ShowControlOverlay").catch(
+        () => {},
+      );
+    }
 
     return instanceId;
   }
@@ -627,6 +646,15 @@ class TabManager {
       }
     }
     return Promise.resolve(results);
+  }
+
+  public hasInstance(instanceId: string): boolean {
+    try {
+      this._getInstance(instanceId);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   public async getInstanceInfo(
@@ -795,6 +823,21 @@ class TabManager {
     });
   }
 
+  public getAccessibilityTree(
+    instanceId: string,
+    options: { interestingOnly?: boolean; root?: string } = {},
+  ): Promise<unknown> {
+    return this._queryActor(
+      instanceId,
+      "WebScraper:GetAccessibilityTree",
+      options,
+    );
+  }
+
+  public getArticle(instanceId: string): Promise<unknown> {
+    return this._queryActor(instanceId, "WebScraper:GetArticle");
+  }
+
   public getElements(instanceId: string, selector: string): Promise<string[]> {
     return this._queryActor<string[]>(instanceId, "WebScraper:GetElements", {
       selector,
@@ -874,6 +917,12 @@ class TabManager {
   public async clickElement(
     instanceId: string,
     selector: string,
+    options?: {
+      button?: "left" | "right" | "middle";
+      clickCount?: number;
+      force?: boolean;
+      stabilityTimeout?: number;
+    },
   ): Promise<boolean | null> {
     this._focusInstance(instanceId);
     const result = await this._queryActor<boolean>(
@@ -881,6 +930,7 @@ class TabManager {
       "WebScraper:ClickElement",
       {
         selector,
+        ...options,
       },
     );
 

@@ -3,7 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { isElementVisible } from "./utils.ts";
+import { isElementVisible, deepQuerySelector } from "./utils.ts";
 import type { DOMOpsDeps } from "./DOMDeps.ts";
 
 const { setTimeout: timerSetTimeout, clearTimeout: timerClearTimeout } =
@@ -107,7 +107,7 @@ export class DOMWaitOperations {
 
       const safeCheck = () => {
         try {
-          const found = doc.querySelector(selector);
+          const found = deepQuerySelector(doc, selector);
           if (this.matchesState(found, state)) {
             finish(true);
           }

@@ -8,6 +8,7 @@
  */
 
 import type { ScreenshotRect, WebScraperContext } from "./types.ts";
+import { deepQuerySelector } from "./utils.ts";
 
 /**
  * Helper class for taking screenshots
@@ -31,9 +32,9 @@ export class ScreenshotOperations {
       if (!this.contentWindow) {
         return null;
       }
-      const canvas = (await this.contentWindow.document?.createElement(
-        "canvas",
-      )) as HTMLCanvasElement;
+      const doc = this.contentWindow.document;
+      if (!doc) return null;
+      const canvas = doc.createElement("canvas") as HTMLCanvasElement;
       const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
       const { innerWidth, innerHeight } = this.contentWindow;
 
@@ -71,15 +72,17 @@ export class ScreenshotOperations {
       if (!this.contentWindow) {
         return null;
       }
-      const element = this.document?.querySelector(selector) as HTMLElement;
+      const doc = this.document;
+      if (!doc) return null;
+      const element = deepQuerySelector(doc, selector) as HTMLElement;
 
       if (!element) {
         return null;
       }
 
-      const canvas = (await this.contentWindow.document?.createElement(
-        "canvas",
-      )) as HTMLCanvasElement;
+      const winDoc = this.contentWindow.document;
+      if (!winDoc) return null;
+      const canvas = winDoc.createElement("canvas") as HTMLCanvasElement;
       const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
       const rect = element.getBoundingClientRect();
 
@@ -124,11 +127,12 @@ export class ScreenshotOperations {
         return null;
       }
       const doc = this.contentWindow.document;
-      const canvas = (await doc?.createElement("canvas")) as HTMLCanvasElement;
+      if (!doc) return null;
+      const canvas = doc.createElement("canvas") as HTMLCanvasElement;
       const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
 
-      const width = doc?.documentElement?.scrollWidth ?? 0;
-      const height = doc?.documentElement?.scrollHeight ?? 0;
+      const width = doc.documentElement?.scrollWidth ?? 0;
+      const height = doc.documentElement?.scrollHeight ?? 0;
 
       if (!width || !height) {
         console.warn(
@@ -168,11 +172,12 @@ export class ScreenshotOperations {
         return null;
       }
       const doc = this.contentWindow.document;
-      const canvas = (await doc?.createElement("canvas")) as HTMLCanvasElement;
+      if (!doc) return null;
+      const canvas = doc.createElement("canvas") as HTMLCanvasElement;
       const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
 
-      const pageScrollWidth = doc?.documentElement?.scrollWidth ?? 0;
-      const pageScrollHeight = doc?.documentElement?.scrollHeight ?? 0;
+      const pageScrollWidth = doc.documentElement?.scrollWidth ?? 0;
+      const pageScrollHeight = doc.documentElement?.scrollHeight ?? 0;
 
       const x = rect.x ?? 0;
       const y = rect.y ?? 0;

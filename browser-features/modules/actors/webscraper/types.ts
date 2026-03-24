@@ -207,6 +207,8 @@ export interface ClickElementOptions {
   force?: boolean;
   /** Timeout in ms for retries (default: 5000) */
   timeout?: number;
+  /** Delay in ms for position stability check (default: 100, 0 to skip) */
+  stabilityTimeout?: number;
 }
 
 // =============================================================================

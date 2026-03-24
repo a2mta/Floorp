@@ -8,6 +8,7 @@
  */
 
 import type { FillFormOptions, WebScraperContext } from "./types.ts";
+import { deepQuerySelector } from "./utils.ts";
 import { DOMOperations } from "./DOMOperations.ts";
 
 /**
@@ -26,6 +27,11 @@ export class FormOperations {
 
   get document(): Document | null {
     return this.context.document;
+  }
+
+  private deepQuery(selector: string): Element | null {
+    const doc = this.document;
+    return doc ? deepQuerySelector(doc, selector) : null;
   }
 
   /**
@@ -80,7 +86,7 @@ export class FormOperations {
         }
 
         const value = formData[selector];
-        let element = this.document?.querySelector(selector) as
+        let element = this.deepQuery(selector) as
           | HTMLInputElement
           | HTMLTextAreaElement
           | HTMLSelectElement
@@ -90,7 +96,7 @@ export class FormOperations {
         if (!element) {
           const waited = await this.domOps.waitForElement(selector, 3000);
           if (waited) {
-            element = this.document?.querySelector(selector) as
+            element = this.deepQuery(selector) as
               | HTMLInputElement
               | HTMLTextAreaElement
               | HTMLSelectElement
@@ -159,7 +165,7 @@ export class FormOperations {
       for (const selector of selectors) {
         const expectedValue = formData[selector];
 
-        const element = this.document?.querySelector(selector) as
+        const element = this.deepQuery(selector) as
           | HTMLInputElement
           | HTMLTextAreaElement
           | HTMLSelectElement
@@ -225,7 +231,7 @@ export class FormOperations {
    */
   async submit(selector: string): Promise<boolean> {
     try {
-      const root = this.document?.querySelector(selector) as Element | null;
+      const root = this.deepQuery(selector) as Element | null;
       const form =
         (root as HTMLFormElement | null)?.tagName === "FORM"
           ? (root as HTMLFormElement)
