@@ -26,9 +26,9 @@ export const [zenModeEnabled, setZenModeEnabled] = createRootHMR(
 );
 
 function measureAndSetCSSVariables() {
-  const root = document.documentElement;
+  const root = document!.documentElement as HTMLElement;
 
-  const toolbox = document.getElementById("navigator-toolbox");
+  const toolbox = document!.getElementById("navigator-toolbox");
   if (toolbox) {
     root.style.setProperty(
       "--zenmode-toolbox-height",
@@ -36,7 +36,7 @@ function measureAndSetCSSVariables() {
     );
   }
 
-  const sidebar = document.getElementById("panel-sidebar-box");
+  const sidebar = document!.getElementById("panel-sidebar-box");
   if (sidebar) {
     root.style.setProperty(
       "--zenmode-sidebar-width",
@@ -44,7 +44,7 @@ function measureAndSetCSSVariables() {
     );
   }
 
-  const selectBox = document.getElementById("panel-sidebar-select-box");
+  const selectBox = document!.getElementById("panel-sidebar-select-box");
   if (selectBox) {
     root.style.setProperty(
       "--zenmode-selectbox-width",
@@ -52,7 +52,7 @@ function measureAndSetCSSVariables() {
     );
   }
 
-  const statusbar = document.getElementById("nora-statusbar");
+  const statusbar = document!.getElementById("nora-statusbar");
   if (statusbar) {
     root.style.setProperty(
       "--zenmode-statusbar-height",
@@ -69,12 +69,12 @@ function setupPrefSync() {
     if (enabled) {
       // Measure element sizes before hiding so animations have correct distances
       measureAndSetCSSVariables();
-      document.documentElement.setAttribute("zenmode", "");
+      document!.documentElement!.setAttribute("zenmode", "");
     } else {
-      document.documentElement.removeAttribute("zenmode");
-      document.documentElement.removeAttribute("zenmode-reveal-top");
-      document.documentElement.removeAttribute("zenmode-reveal-bottom");
-      document.documentElement.removeAttribute("zenmode-reveal-side");
+      document!.documentElement!.removeAttribute("zenmode");
+      document!.documentElement!.removeAttribute("zenmode-reveal-top");
+      document!.documentElement!.removeAttribute("zenmode-reveal-bottom");
+      document!.documentElement!.removeAttribute("zenmode-reveal-side");
     }
   });
 
@@ -120,23 +120,23 @@ function setupHoverReveal() {
     if (!zenModeEnabled()) return;
 
     const { clientX, clientY } = event;
-    const windowWidth = window.innerWidth;
-    const windowHeight = window.innerHeight;
+    const windowWidth = innerWidth;
+    const windowHeight = innerHeight;
 
     // Top edge detection
     if (clientY <= EDGE_THRESHOLD) {
       clearTopTimer();
-      document.documentElement.setAttribute("zenmode-reveal-top", "");
+      document!.documentElement!.setAttribute("zenmode-reveal-top", "");
     } else if (
-      document.documentElement.hasAttribute("zenmode-reveal-top")
+      document!.documentElement!.hasAttribute("zenmode-reveal-top")
     ) {
-      const navigatorToolbox = document.getElementById("navigator-toolbox");
+      const navigatorToolbox = document!.getElementById("navigator-toolbox");
       if (navigatorToolbox) {
         const rect = navigatorToolbox.getBoundingClientRect();
         if (clientY > rect.bottom) {
           clearTopTimer();
           topHideTimer = setTimeout(() => {
-            document.documentElement.removeAttribute("zenmode-reveal-top");
+            document!.documentElement!.removeAttribute("zenmode-reveal-top");
             topHideTimer = null;
           }, HIDE_DELAY_MS);
         } else {
@@ -148,17 +148,17 @@ function setupHoverReveal() {
     // Bottom edge detection
     if (clientY >= windowHeight - EDGE_THRESHOLD) {
       clearBottomTimer();
-      document.documentElement.setAttribute("zenmode-reveal-bottom", "");
+      document!.documentElement!.setAttribute("zenmode-reveal-bottom", "");
     } else if (
-      document.documentElement.hasAttribute("zenmode-reveal-bottom")
+      document!.documentElement!.hasAttribute("zenmode-reveal-bottom")
     ) {
-      const statusbar = document.getElementById("nora-statusbar");
+      const statusbar = document!.getElementById("nora-statusbar");
       if (statusbar) {
         const rect = statusbar.getBoundingClientRect();
         if (clientY < rect.top) {
           clearBottomTimer();
           bottomHideTimer = setTimeout(() => {
-            document.documentElement.removeAttribute("zenmode-reveal-bottom");
+            document!.documentElement!.removeAttribute("zenmode-reveal-bottom");
             bottomHideTimer = null;
           }, HIDE_DELAY_MS);
         } else {
@@ -170,12 +170,12 @@ function setupHoverReveal() {
     // Left/right edge detection for panel sidebar
     if (clientX <= EDGE_THRESHOLD || clientX >= windowWidth - EDGE_THRESHOLD) {
       clearSideTimer();
-      document.documentElement.setAttribute("zenmode-reveal-side", "");
+      document!.documentElement!.setAttribute("zenmode-reveal-side", "");
     } else if (
-      document.documentElement.hasAttribute("zenmode-reveal-side")
+      document!.documentElement!.hasAttribute("zenmode-reveal-side")
     ) {
-      const panelSidebar = document.getElementById("panel-sidebar-box");
-      const panelSelectBox = document.getElementById(
+      const panelSidebar = document!.getElementById("panel-sidebar-box");
+      const panelSelectBox = document!.getElementById(
         "panel-sidebar-select-box",
       );
       const insideSidebar =
@@ -189,7 +189,7 @@ function setupHoverReveal() {
       if (!insideSidebar) {
         clearSideTimer();
         sideHideTimer = setTimeout(() => {
-          document.documentElement.removeAttribute("zenmode-reveal-side");
+          document!.documentElement!.removeAttribute("zenmode-reveal-side");
           sideHideTimer = null;
         }, HIDE_DELAY_MS);
       } else {
@@ -198,17 +198,17 @@ function setupHoverReveal() {
     }
   };
 
-  window.addEventListener("mousemove", handleMouseMove);
+  addEventListener("mousemove", handleMouseMove);
 
   onCleanup(() => {
-    window.removeEventListener("mousemove", handleMouseMove);
+    removeEventListener("mousemove", handleMouseMove);
     clearTopTimer();
     clearBottomTimer();
     clearSideTimer();
-    document.documentElement.removeAttribute("zenmode");
-    document.documentElement.removeAttribute("zenmode-reveal-top");
-    document.documentElement.removeAttribute("zenmode-reveal-bottom");
-    document.documentElement.removeAttribute("zenmode-reveal-side");
+    document!.documentElement!.removeAttribute("zenmode");
+    document!.documentElement!.removeAttribute("zenmode-reveal-top");
+    document!.documentElement!.removeAttribute("zenmode-reveal-bottom");
+    document!.documentElement!.removeAttribute("zenmode-reveal-side");
   });
 }
 

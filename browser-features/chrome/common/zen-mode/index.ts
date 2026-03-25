@@ -5,7 +5,7 @@
 
 import { render } from "@nora/solid-xul";
 import { createRootHMR } from "@nora/solid-xul";
-import { createSignal, onCleanup } from "solid-js";
+import { createSignal } from "solid-js";
 import { noraComponent, NoraComponentBase } from "#features-chrome/utils/base";
 import { BrowserActionUtils } from "../../utils/browser-action.tsx";
 import {
@@ -17,19 +17,13 @@ import { StyleElement } from "./styleElem.tsx";
 import { addI18nObserver } from "#i18n/config-browser-chrome.ts";
 import i18next from "i18next";
 
-const { CustomizableUI } = ChromeUtils.importESModule(
-  "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs",
-);
-
 @noraComponent(import.meta.hot)
 export default class ZenMode extends NoraComponentBase {
   init() {
     this.logger.info("Initializing Zen Mode");
 
     if (typeof document === "undefined") {
-      this.logger.warn(
-        "Document is unavailable; skip initializing Zen Mode.",
-      );
+      this.logger.warn("Document is unavailable; skip initializing Zen Mode.");
       return;
     }
 
@@ -39,10 +33,9 @@ export default class ZenMode extends NoraComponentBase {
     const tryInit = () => {
       this.injectMenu();
       this.createToolbarButton();
-      this.registerKeyboardShortcut();
     };
 
-    if (document.readyState === "loading") {
+    if (document?.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", tryInit, { once: true });
     } else {
       tryInit();
@@ -50,7 +43,7 @@ export default class ZenMode extends NoraComponentBase {
   }
 
   private injectMenu() {
-    const menuPopup = document.getElementById("menu_ToolsPopup");
+    const menuPopup = document!.getElementById("menu_ToolsPopup");
     if (!menuPopup) {
       this.logger.warn(
         "Failed to locate #menu_ToolsPopup; Zen Mode menu item will not be injected.",
@@ -58,7 +51,7 @@ export default class ZenMode extends NoraComponentBase {
       return;
     }
 
-    const marker = document.getElementById("menu_openFirefoxView");
+    const marker = document!.getElementById("menu_openFirefoxView");
 
     try {
       render(ZenModeMenuElement, menuPopup, {
@@ -78,13 +71,13 @@ export default class ZenMode extends NoraComponentBase {
       null,
       () => setZenModeEnabled((prev) => !prev),
       StyleElement(),
-      CustomizableUI.AREA_NAVBAR,
+      null,
       null,
       (aNode: XULElement) => {
-        const tooltip = document?.createXULElement("tooltip") as XULElement;
+        const tooltip = document!.createXULElement("tooltip") as XULElement;
         tooltip.id = "zen-mode-button-tooltip";
         tooltip.setAttribute("hasbeenopened", "false");
-        document?.getElementById("mainPopupSet")?.appendChild(tooltip);
+        document!.getElementById("mainPopupSet")?.appendChild(tooltip);
         aNode.setAttribute("tooltip", "zen-mode-button-tooltip");
 
         createRootHMR(
@@ -114,31 +107,5 @@ export default class ZenMode extends NoraComponentBase {
         );
       },
     );
-  }
-
-  private registerKeyboardShortcut() {
-    const isMac =
-      navigator.platform?.toUpperCase().includes("MAC") ?? false;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const accelKey = isMac ? event.metaKey : event.ctrlKey;
-      if (
-        accelKey &&
-        event.shiftKey &&
-        event.key.toUpperCase() === "Z" &&
-        !event.altKey
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        setZenModeEnabled((prev) => !prev);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown, true);
-    onCleanup(() => {
-      window.removeEventListener("keydown", handleKeyDown, true);
-    });
-
-    this.logger.info("Zen Mode keyboard shortcut registered (Ctrl+Shift+Z).");
   }
 }

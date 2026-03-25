@@ -124,7 +124,7 @@ const {
 const _render = (
   code: () => JSX.Element,
   node: JSX.Element,
-  options?: { marker?: Element },
+  options?: { marker?: Element; hotCtx?: ViteHotContext },
 ) => {
   let elem: unknown = insert(
     node,

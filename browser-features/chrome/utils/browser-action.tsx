@@ -15,7 +15,7 @@ export namespace BrowserActionUtils {
     l10nId: string | null,
     onCommandFunc: () => void,
     styleElement: JSXElement | null = null,
-    area: TCustomizableUIArea = CustomizableUI.AREA_NAVBAR,
+    area: TCustomizableUIArea | null = CustomizableUI.AREA_NAVBAR,
     position: number | null = 0,
     onCreatedFunc: null | ((aNode: XULElement) => void) = null,
   ) {
@@ -47,8 +47,12 @@ export namespace BrowserActionUtils {
         onCreated: (aNode: XULElement) => {
           onCreatedFunc?.(aNode);
         },
-        defaultArea: area,
+        defaultArea: area ?? undefined,
       });
+
+      if (!area) {
+        return;
+      }
 
       try {
         await (CustomizableUI.readyPromise ?? Promise.resolve());
