@@ -15,14 +15,18 @@ const t = (key: string, opts?: Record<string, string>): string =>
   (i18next.t as (k: string, o?: Record<string, string>) => string)(key, opts);
 
 /**
- * Adds "Add Pane to Split View" and "Move to Pane" items to the tab
- * context menu when a split view is active.
+ * Adds "Open in Split View", "Add Pane to Split View" and "Move to Pane"
+ * items to the tab context menu.
  */
 export function initContextMenu(logger: ConsoleInstance): void {
   const tabContainer = getGBrowser()?.tabContainer;
   if (!tabContainer) return;
 
   const updateLabels = (): void => {
+    const openInSplitItem = document?.getElementById("floorp_openInSplitView");
+    if (openInSplitItem) {
+      openInSplitItem.setAttribute("label", t("splitView.contextMenu.openInSplitView"));
+    }
     const addPaneItem = document?.getElementById("floorp_addPaneToSplitView");
     if (addPaneItem) {
       addPaneItem.setAttribute("label", t("splitView.contextMenu.addPane"));
@@ -52,11 +56,57 @@ export function initContextMenu(logger: ConsoleInstance): void {
       (tab: SplitViewTab) => tab.splitview,
     );
 
+    // gBrowser.selectedTabs reflects the current multi-selection state
+    // regardless of TabContextMenu timing.  It always contains at least
+    // the active tab; length >= 2 means the user Ctrl/Shift-clicked.
+    const multiSelectedTabs: SplitViewTab[] = gBrowser?.selectedTabs ?? [];
+
     logger.debug(
       `[contextMenu] activeSplitView=${!!activeSplitView}, ` +
         `contextTabs=${contextTabs.length}, hasSplitViewTab=${hasSplitViewTab}, ` +
+        `multiSelected=${multiSelectedTabs.length}, ` +
         `activeTabs=${activeSplitView?.tabs?.length ?? 0}`,
     );
+
+    // === Open in Split View (create new split from multi-selected tabs) ===
+    const shouldShowOpenInSplit =
+      multiSelectedTabs.length >= 2 && !activeSplitView;
+
+    let openInSplitItem = document?.getElementById(
+      "floorp_openInSplitView",
+    ) as XULElement | null;
+
+    if (shouldShowOpenInSplit) {
+      if (!openInSplitItem) {
+        openInSplitItem = document?.createXULElement("menuitem") as XULElement;
+        if (openInSplitItem) {
+          openInSplitItem.id = "floorp_openInSplitView";
+          openInSplitItem.setAttribute(
+            "label",
+            t("splitView.contextMenu.openInSplitView"),
+          );
+          openInSplitItem.addEventListener("command", () => {
+            const currentGBrowser = getGBrowser();
+            if (!currentGBrowser) return;
+            const currentSelectedTabs = currentGBrowser.selectedTabs;
+            const maxPanes = splitViewConfig().maxPanes;
+            const tabsToSplit = currentSelectedTabs.slice(0, maxPanes);
+            logger.debug(
+              `[contextMenu:command] opening ${tabsToSplit.length} tab(s) in new split view`,
+            );
+            if (tabsToSplit.length >= 2) {
+              currentGBrowser.addTabSplitView(tabsToSplit);
+            }
+          });
+          separateItem.after(openInSplitItem);
+        }
+      }
+      if (openInSplitItem) {
+        openInSplitItem.hidden = false;
+      }
+    } else if (openInSplitItem) {
+      openInSplitItem.hidden = true;
+    }
 
     // === Add Pane to Split View ===
     const shouldShowAddPane =
@@ -92,7 +142,11 @@ export function initContextMenu(logger: ConsoleInstance): void {
               currentSplitView.addTabs(nonSplitTabs);
             }
           });
-          separateItem.after(addPaneItem);
+          const insertAddPaneAfter =
+            openInSplitItem && !openInSplitItem.hidden
+              ? openInSplitItem
+              : separateItem;
+          insertAddPaneAfter.after(addPaneItem);
         }
       }
       if (addPaneItem) {
@@ -133,12 +187,13 @@ export function initContextMenu(logger: ConsoleInstance): void {
             moveMenu.appendChild(popup);
           }
 
-          // Insert after addPaneItem if visible, otherwise after separateItem
-          const insertAfter =
+          const insertMoveAfter =
             addPaneItem && !addPaneItem.hidden
               ? addPaneItem
-              : separateItem;
-          insertAfter.after(moveMenu);
+              : openInSplitItem && !openInSplitItem.hidden
+                ? openInSplitItem
+                : separateItem;
+          insertMoveAfter.after(moveMenu);
         }
       }
       if (moveMenu) {

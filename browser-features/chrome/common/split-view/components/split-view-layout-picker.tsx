@@ -65,13 +65,18 @@ function onPopupShowing(): void {
   removeFloorpMenuItems(menu);
 
   const firstSep = menu.querySelector("menuseparator");
-  const separator = document?.createXULElement("menuseparator");
-  if (separator) {
-    separator.className = "floorp-split-view-menu-item";
-    if (firstSep) {
-      firstSep.before(separator);
-    } else {
+
+  // If there is no existing separator, create one as a divider between
+  // our items and the rest of the menu.  When an existing separator is
+  // already present we reuse it as the anchor so we don't end up with
+  // two consecutive separators.
+  let anchor: Element | null = firstSep;
+  if (!anchor) {
+    const separator = document?.createXULElement("menuseparator");
+    if (separator) {
+      separator.className = "floorp-split-view-menu-item";
       menu.appendChild(separator);
+      anchor = separator;
     }
   }
 
@@ -108,8 +113,8 @@ function onPopupShowing(): void {
       applyLayout(log);
     });
 
-    if (separator) {
-      separator.before(item);
+    if (anchor) {
+      anchor.before(item);
     }
   }
 

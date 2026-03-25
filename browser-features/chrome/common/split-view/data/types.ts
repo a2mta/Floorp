@@ -40,6 +40,8 @@ export interface SplitViewGBrowser {
   /** All tabs in this window, in visual order. */
   tabs: SplitViewTab[];
   selectedTab: SplitViewTab;
+  /** All multi-selected tabs (Ctrl+click / Shift+click). */
+  selectedTabs: SplitViewTab[];
   activeSplitView: SplitViewWrapper | null;
   showSplitViewPanels(tabs: SplitViewTab[]): void;
   moveTabBefore(tab: SplitViewTab, beforeTab: SplitViewTab | null): void;
@@ -57,6 +59,7 @@ export interface SplitViewGBrowser {
 
 /** TabContextMenu global. */
 export interface TabContextMenuGlobal {
+  contextTab: SplitViewTab & { multiselected?: boolean };
   contextTabs: SplitViewTab[];
 }
 

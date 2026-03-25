@@ -99,6 +99,7 @@ export class SplitViewManager {
     destroyToolbarButtonEnhancement();
 
     // Remove dynamically created context menu items
+    document?.getElementById("floorp_openInSplitView")?.remove();
     document?.getElementById("floorp_addPaneToSplitView")?.remove();
     document?.getElementById("floorp_moveTabToPane")?.remove();
   }
