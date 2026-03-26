@@ -804,50 +804,49 @@ jobs:
           mkdir -p "$WORKDIR/src"
           tar -xJf "$INPUT_ARCHIVE" -C "$WORKDIR/src"
 
-          # Find top-level candidate directory
+          # Move extracted files into a "firefox" top-level directory.
+          # The debian templates (install.in) expect "firefox/*" as the
+          # source path, and deb.py uses the single top-level directory
+          # name as app_name, so the tarball must contain exactly one
+          # directory named "firefox".
           candidate=$(find "$WORKDIR/src" -maxdepth 1 -mindepth 1 -type d -print -quit || true)
+          mkdir -p "$WORKDIR/firefox"
           if [ -z "$candidate" ]; then
-            mkdir -p "$WORKDIR/floorp"
+            echo "[deb-debug] No subdirectory found in src/, moving files directly"
             shopt -s dotglob || true
-            mv "$WORKDIR/src"/* "$WORKDIR/floorp/" 2>/dev/null || true
+            mv "$WORKDIR/src"/* "$WORKDIR/firefox/" 2>/dev/null || true
           else
-            cand_basename=$(basename "$candidate")
-            if [ "$cand_basename" != "floorp" ]; then
-              echo "Adjusting top-level directory from $cand_basename to floorp"
-              mkdir -p "$WORKDIR/floorp"
-              mv "$candidate"/* "$WORKDIR/floorp/" || true
-            else
-              echo "Archive already contains floorp/ top-level"
-              mkdir -p "$WORKDIR/floorp"
-              mv "$candidate"/* "$WORKDIR/floorp/" || true
-            fi
+            echo "[deb-debug] Found candidate: $(basename "$candidate"), moving to firefox/"
+            mv "$candidate"/* "$WORKDIR/firefox/" || true
           fi
 
-          # Expose firefox/firefox-bin aliases so packaging scripts that
-          # expect a "firefox" binary find one inside the floorp/ tree.
-          if [ -f "$WORKDIR/floorp/floorp" ]; then
-            ln -sf floorp "$WORKDIR/floorp/firefox"
+          # Expose firefox/firefox-bin aliases so packaging scripts find them
+          if [ -f "$WORKDIR/firefox/floorp" ]; then
+            ln -sf floorp "$WORKDIR/firefox/firefox"
           fi
-          if [ -f "$WORKDIR/floorp/floorp-bin" ]; then
-            ln -sf floorp-bin "$WORKDIR/floorp/firefox-bin"
+          if [ -f "$WORKDIR/firefox/floorp-bin" ]; then
+            ln -sf floorp-bin "$WORKDIR/firefox/firefox-bin"
           fi
 
           # Mark packaged app for mach's checks
-          touch "$WORKDIR/floorp/is-packaged-app" || true
+          touch "$WORKDIR/firefox/is-packaged-app" || true
+
+          echo "[deb-debug] firefox/ directory contents:"
+          ls -la "$WORKDIR/firefox/" || true
+          echo "[deb-debug] symlinks:"
+          find "$WORKDIR/firefox" -maxdepth 1 -type l -exec ls -la {} \; || true
+          echo "[deb-debug] application.ini:"
+          head -20 "$WORKDIR/firefox/application.ini" 2>/dev/null || echo "[deb-debug] application.ini not found"
 
           # mach repackage deb expects a tarball with a single top-level
-          # directory, so only include floorp/.
+          # directory. The debian install.in references "firefox/*".
           ADJUSTED_ARCHIVE="$WORKDIR/adjusted-installer.tar.xz"
-          (cd "$WORKDIR" && tar -cJf "$ADJUSTED_ARCHIVE" floorp)
+          (cd "$WORKDIR" && tar -cJf "$ADJUSTED_ARCHIVE" firefox)
 
-          echo "Adjusted archive created: $ADJUSTED_ARCHIVE"
-          tar -tJf "$ADJUSTED_ARCHIVE" | sed -n '1,200p' || true
-
-          INSPECT_DIR="$WORKDIR/inspect"
-          mkdir -p "$INSPECT_DIR"
-          tar -xJf "$ADJUSTED_ARCHIVE" -C "$INSPECT_DIR"
-          echo "Inspect listing (first 200 lines):"
-          ls -laR "$INSPECT_DIR" | sed -n '1,200p' || true
+          echo "[deb-debug] Adjusted archive created: $ADJUSTED_ARCHIVE ($(stat -c%s "$ADJUSTED_ARCHIVE") bytes)"
+          echo "[deb-debug] Archive top-level entries:"
+          tar -tJf "$ADJUSTED_ARCHIVE" | head -5 || true
+          echo "[deb-debug] Total files in archive: $(tar -tJf "$ADJUSTED_ARCHIVE" | wc -l)"
 
           # Run repackager
           OUTPUT_DEB=~/noraneko-installer/noraneko.deb
