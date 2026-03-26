@@ -1,11 +1,10 @@
-diff --git a/modules/SearchService.sys.mjs b/modules/SearchService.sys.mjs
-index d3cbb41..b40299a 100644
---- ./modules/SearchService.sys.mjs
-+++ ./modules/SearchService.sys.mjs
-@@ -2449,6 +2449,193 @@ export class SearchService {
+diff --git a/moz-src/toolkit/components/search/SearchService.sys.mjs b/moz-src/toolkit/components/search/SearchService.sys.mjs
+--- ./moz-src/toolkit/components/search/SearchService.sys.mjs
++++ ./moz-src/toolkit/components/search/SearchService.sys.mjs
+@@ -2798,6 +2798,193 @@ export class SearchService {
        this._settings.setMetaDataAttribute(key, value);
      }
- 
+
 +    /*@nora:inject:start*/
 +    return {
 +      engines: [
