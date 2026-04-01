@@ -9,6 +9,7 @@
 import type { WaitForElementState } from "../../os-server/shared/types.ts";
 import { GlobalHTTPTracker } from "./shared/GlobalHTTPTracker.sys.mts";
 import { PROGRESS_LISTENERS } from "./shared/ProgressListeners.sys.mts";
+import { waitForActor } from "./shared/waitForActor.sys.mts";
 
 const { E10SUtils } = ChromeUtils.importESModule(
   "resource://gre/modules/E10SUtils.sys.mjs",
@@ -149,6 +150,9 @@ class TabManager {
     { tab: BrowserTab; browser: XULBrowserElement }
   > = new Map();
 
+  // Reverse index: tab → instanceId for O(1) lookup in listTabs()
+  private _tabToInstanceId: Map<BrowserTab, string> = new Map();
+
   // Set of instance IDs currently being destroyed (TOCTOU guard)
   private _destroying: Set<string> = new Set();
 
@@ -236,6 +240,7 @@ class TabManager {
           GlobalHTTPTracker.clearForContext(bcid);
         }
         this._browserInstances.delete(instanceId);
+        this._tabToInstanceId.delete(tab);
         TAB_MANAGER_ACTOR_SETS.delete(entry.browser);
         this._destroying.delete(instanceId);
         if (tab.removeAttribute) {
@@ -278,6 +283,7 @@ class TabManager {
         if (targetTab) {
           entry = { tab: targetTab, browser: targetTab.linkedBrowser };
           this._browserInstances.set(instanceId, entry);
+          this._tabToInstanceId.set(targetTab, instanceId);
           TAB_MANAGER_ACTOR_SETS.add(entry.browser);
           if (targetTab.setAttribute) {
             targetTab.setAttribute("data-floorp-os-automated", "true");
@@ -293,6 +299,7 @@ class TabManager {
       const browser = entry.tab.linkedBrowser;
       if (!browser || !browser.ownerGlobal || browser.ownerGlobal.closed) {
         this._browserInstances.delete(instanceId);
+        this._tabToInstanceId.delete(entry.tab);
         TAB_MANAGER_ACTOR_SETS.delete(entry.browser);
         return null;
       }
@@ -394,13 +401,11 @@ class TabManager {
             "NRWebScraper",
           ) as WebScraperActor | undefined;
           if (!actor) {
-            for (let i = 0; i < 50; i++) {
-              await new Promise((r) => setTimeout(r, 100));
-              actor = browser.browsingContext?.currentWindowGlobal?.getActor(
-                "NRWebScraper",
-              ) as WebScraperActor | undefined;
-              if (actor) break;
-            }
+            actor = (await waitForActor<WebScraperActor>(
+              () => browser,
+              "NRWebScraper",
+              { maxMs: 5000 },
+            )) ?? undefined;
           }
           if (actor) {
             // Prefer readiness wait; fallback to element waits for heavy SPAs (X.com等)
@@ -508,19 +513,14 @@ class TabManager {
         "NRWebScraper",
       ) as WebScraperActor | undefined;
 
-      // Retry a few times after navigation for actor readiness
-      // Bug #5: refresh browser reference in case of process swap during retry
+      // Retry with exponential backoff after navigation for actor readiness
+      // Bug #5: getBrowser callback refreshes browser reference for process swaps
       if (!actor) {
-        for (let i = 0; i < 150; i++) {
-          await new Promise((r) => setTimeout(r, 100));
-          const freshEntry = this._getEntry(instanceId);
-          if (!freshEntry) break;
-          actor =
-            freshEntry.browser.browsingContext?.currentWindowGlobal?.getActor(
-              "NRWebScraper",
-            ) as WebScraperActor | undefined;
-          if (actor) break;
-        }
+        actor = (await waitForActor<WebScraperActor>(
+          () => this._getEntry(instanceId)?.browser,
+          "NRWebScraper",
+          { maxMs: 15000 },
+        )) ?? undefined;
       }
 
       if (!actor) {
@@ -566,6 +566,7 @@ class TabManager {
 
     const instanceId = crypto.randomUUID();
     this._browserInstances.set(instanceId, { tab, browser });
+    this._tabToInstanceId.set(tab, instanceId);
     TAB_MANAGER_ACTOR_SETS.add(browser);
 
     // Mark tab as automated
@@ -604,6 +605,7 @@ class TabManager {
     const browser = targetTab.linkedBrowser;
     const instanceId = crypto.randomUUID();
     this._browserInstances.set(instanceId, { tab: targetTab, browser });
+    this._tabToInstanceId.set(targetTab, instanceId);
     TAB_MANAGER_ACTOR_SETS.add(browser);
 
     // Mark tab as automated
@@ -625,14 +627,8 @@ class TabManager {
       const wid = getWindowId(win);
       for (const tab of gBrowser.tabs) {
         const browserId = tab.linkedBrowser.browserId.toString();
-        // Find if this tab is already an instance
-        let instanceId: string | undefined;
-        for (const [id, entry] of this._browserInstances.entries()) {
-          if (entry.tab === tab) {
-            instanceId = id;
-            break;
-          }
-        }
+        // O(1) reverse index lookup instead of linear scan
+        const instanceId = this._tabToInstanceId.get(tab);
 
         results.push({
           browserId,
@@ -709,6 +705,7 @@ class TabManager {
         tab.removeAttribute("data-floorp-os-instance-id");
       }
       this._browserInstances.delete(instanceId);
+      if (tab) this._tabToInstanceId.delete(tab);
       TAB_MANAGER_ACTOR_SETS.delete(browser);
     } finally {
       this._destroying.delete(instanceId);
@@ -741,6 +738,7 @@ class TabManager {
 
       // Remove from tracking
       this._browserInstances.delete(instanceId);
+      if (tab) this._tabToInstanceId.delete(tab);
       TAB_MANAGER_ACTOR_SETS.delete(browser);
 
       // Remove automated attributes

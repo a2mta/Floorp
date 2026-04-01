@@ -17,12 +17,25 @@ const GlobalHTTPTracker = {
     try {
       Services.obs.addObserver(this, "http-on-opening-request");
       Services.obs.addObserver(this, "http-on-stop-request");
+      Services.obs.addObserver(this, "browsing-context-detached");
     } catch (e) {
       console.error("GlobalHTTPTracker: init failed:", e);
     }
   },
 
   observe(subject: nsISupports, topic: string, _data: string | null) {
+    // Auto-cleanup when a browsing context is destroyed (tab closed, process crash)
+    if (topic === "browsing-context-detached") {
+      try {
+        // BrowsingContext is a WebIDL object, not XPCOM — no QueryInterface needed
+        const bc = subject as { id?: number };
+        if (bc.id != null) this.clearForContext(bc.id);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
     try {
       // deno-lint-ignore no-explicit-any
       const channel = (subject as any).QueryInterface(Ci.nsIHttpChannel);
