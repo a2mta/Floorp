@@ -8,6 +8,16 @@
  * with exponential backoff.
  */
 
+const { setTimeout } = ChromeUtils.importESModule(
+  "resource://gre/modules/Timer.sys.mjs",
+);
+
+/** Minimal shape of a XUL browser element for actor access. */
+interface BrowserLike {
+  browsingContext?: {
+    currentWindowGlobal?: { getActor(name: string): unknown } | null;
+  } | null;
+}
 interface WaitForActorOptions {
   /** Maximum total wait time in milliseconds (default: 15000) */
   maxMs?: number;
@@ -23,7 +33,9 @@ interface WaitForActorOptions {
  * Polls for a JSWindowActor on a browser element using exponential backoff.
  *
  * The backoff sequence starts at `initialMs` and multiplies by `factor` each
- * iteration, capped at `capMs`: 10, 15, 22, 33, 50, 75, 112, 168, 252, 378, 500, ...
+ * iteration, capped at `capMs`. With the defaults (initialMs=10, factor=1.5,
+ * capMs=500), the delays are approximately: 10, 15, 22.5, 33.75, 50.6, 75.9,
+ * 113.9, 170.9, 256.3, 384.4, 500, ...
  *
  * This provides fast response when the actor is immediately available (~10ms)
  * while avoiding CPU waste during slow page loads.
@@ -37,7 +49,7 @@ interface WaitForActorOptions {
  *          returns null.
  */
 export async function waitForActor<T = unknown>(
-  getBrowser: () => { browsingContext?: { currentWindowGlobal?: { getActor(name: string): unknown } | null } | null } | null | undefined,
+  getBrowser: () => BrowserLike | null | undefined,
   actorName: string,
   opts?: WaitForActorOptions,
 ): Promise<T | null> {
@@ -58,8 +70,11 @@ export async function waitForActor<T = unknown>(
   let delay = initialMs;
   const deadline = Date.now() + maxMs;
 
-  while (Date.now() < deadline) {
-    await new Promise<void>((r) => setTimeout(r, delay));
+  while (true) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+
+    await new Promise<void>((r) => setTimeout(r, Math.min(delay, remaining)));
     delay = Math.min(delay * factor, capMs);
 
     const b = getBrowser();
